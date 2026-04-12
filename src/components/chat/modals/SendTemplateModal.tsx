@@ -1,15 +1,36 @@
-import { useState } from 'react';
-import { X } from 'lucide-react';
-import { useApp } from '../../../context/AppContext';
-import { Message } from '../../../types';
+import { useState, useEffect } from 'react';
+import { X, Loader2 } from 'lucide-react';
+import { api, MessageTemplate } from '@/lib/api';
 import { toast } from 'sonner';
 
-const SendTemplateModal = ({ onClose }: { onClose: () => void }) => {
-  const { selectedCustomerId, templates, addMessage } = useApp();
+interface SendTemplateModalProps {
+  conversationId: number;
+  onClose: () => void;
+}
+
+const SendTemplateModal = ({ conversationId, onClose }: SendTemplateModalProps) => {
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [params, setParams] = useState<Record<string, string>>({});
+  const [sending, setSending] = useState(false);
 
-  const template = templates.find(t => t.id === selectedTemplateId);
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const fetchTemplates = async () => {
+    try {
+      const data = await api.get<{ data: MessageTemplate[] }>('/templates');
+      setTemplates(data.data || []);
+    } catch (error) {
+      console.error('Failed to fetch templates:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const template = templates.find(t => t.id.toString() === selectedTemplateId);
 
   const handleTemplateChange = (id: string) => {
     setSelectedTemplateId(id);
@@ -17,35 +38,55 @@ const SendTemplateModal = ({ onClose }: { onClose: () => void }) => {
   };
 
   const renderBody = () => {
-    if (!template) return '';
-    let body = template.body;
-    template.parameters.forEach((p, i) => {
-      body = body.replace(`{{${i + 1}}}`, params[p] || `{{${p}}}`);
+    if (!template?.content) return '';
+    let body = template.content;
+    (template.parameters || []).forEach((p) => {
+      const value = params[p.key] || `{{${p.key}}}`;
+      body = body.replace(`{{${p.key}}}`, value);
     });
     return body;
   };
 
-  const allParamsFilled = template ? template.parameters.every(p => params[p]?.trim()) : true;
+  const allParamsFilled = template 
+    ? (!template.parameters || template.parameters.length === 0 || template.parameters.every(p => params[p.key]?.trim()))
+    : true;
 
-  const send = () => {
-    if (!selectedCustomerId || !template) return;
-    const msg: Message = {
-      id: `msg-${Date.now()}`,
-      customerId: selectedCustomerId,
-      type: 'template',
-      direction: 'outgoing',
-      content: renderBody(),
-      timestamp: new Date(),
-      status: 'sent',
-      templateName: template.name,
-      templateHeader: template.header,
-      templateFooter: template.footer,
-      templateButtons: template.buttons,
-    };
-    addMessage(msg);
-    toast.success('Template message sent');
-    onClose();
+  const send = async () => {
+    if (!conversationId || !template) return;
+    setSending(true);
+    try {
+      const payload: any = { template_name: template.name };
+      
+      if (template.parameters && template.parameters.length > 0) {
+        payload.template_components = template.parameters.map(param => ({
+          type: 'body',
+          parameters: [
+            {
+              type: 'text',
+              key: param.key.toString(),
+              value: params[param.key] || '',
+            },
+          ],
+        }));
+      }
+      
+      await api.post(`/conversations/${conversationId}/send`, payload);
+      toast.success('Template sent successfully');
+      onClose();
+    } catch (error) {
+      toast.error('Failed to send template');
+    } finally {
+      setSending(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-background/80 flex items-center justify-center z-50">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-background/80 flex items-center justify-center z-50" onClick={onClose}>
@@ -65,30 +106,35 @@ const SendTemplateModal = ({ onClose }: { onClose: () => void }) => {
                 ))}
               </select>
             </div>
-            {template && template.parameters.length > 0 && (
+            {template && template.parameters && template.parameters.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">Parameters</p>
-                {template.parameters.map(p => (
-                  <div key={p}>
-                    <label className="text-xs text-muted-foreground capitalize">{p.replace('_', ' ')}</label>
-                    <input value={params[p] || ''} onChange={e => setParams({ ...params, [p]: e.target.value })} className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1" placeholder={`Enter ${p}`} />
+                {template.parameters.map((p) => (
+                  <div key={p.key}>
+                    <label className="text-xs text-muted-foreground capitalize">{p.label || `Parameter ${p.key}`}</label>
+                    <input 
+                      value={params[p.key] || ''} 
+                      onChange={e => setParams({ ...params, [p.key]: e.target.value })} 
+                      className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1" 
+                      placeholder={`Enter {{${p.key}}}`} 
+                    />
                   </div>
                 ))}
               </div>
             )}
           </div>
-          <button onClick={send} disabled={!template || !allParamsFilled} className="mt-4 w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">Send</button>
+          <button onClick={send} disabled={!template || !allParamsFilled || sending} className="mt-4 w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
+            {sending && <Loader2 className="w-4 h-4 animate-spin" />}
+            Send
+          </button>
         </div>
-        <div className="w-60 border-l border-border bg-wa-chat-bg p-4">
+        <div className="w-60 border-l border-border bg-muted p-4">
           <p className="text-xs text-muted-foreground mb-3">Preview</p>
           {template ? (
-            <div className="bg-wa-outgoing rounded-lg p-3 text-sm space-y-1.5">
-              {template.header && <p className="font-semibold">{template.header}</p>}
+            <div className="bg-card rounded-lg p-3 text-sm space-y-1.5 border border-border">
+              {template.header_content && <p className="font-semibold">{template.header_content}</p>}
               <p>{renderBody()}</p>
-              {template.footer && <p className="text-xs text-muted-foreground">{template.footer}</p>}
-              {template.buttons?.map((btn, i) => (
-                <button key={i} className="w-full text-center text-xs text-primary border border-primary/30 rounded py-1 mt-1">{btn.text}</button>
-              ))}
+              {template.footer_content && <p className="text-xs text-muted-foreground">{template.footer_content}</p>}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">Select a template to preview</p>

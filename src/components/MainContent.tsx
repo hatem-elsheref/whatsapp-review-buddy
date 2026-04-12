@@ -4,6 +4,7 @@ import TemplatesSection from './templates/TemplatesSection';
 import CustomersSection from './customers/CustomersSection';
 import WebhookLogsSection from './webhooks/WebhookLogsSection';
 import SettingsSection from './settings/SettingsSection';
+import UsersSection from './users/UsersSection';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const MainContent = () => {
@@ -15,6 +16,7 @@ const MainContent = () => {
     customers: <CustomersSection />,
     webhooks: <WebhookLogsSection />,
     settings: <SettingsSection />,
+    users: <UsersSection />,
   };
 
   return (

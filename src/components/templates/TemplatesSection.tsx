@@ -1,164 +1,281 @@
-import { useState } from 'react';
-import { useApp } from '../../context/AppContext';
-import { Message } from '../../types';
+import { useState, useEffect } from 'react';
+import Select from 'react-select';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { RefreshCw } from 'lucide-react';
+import { api, MessageTemplate, Contact } from '@/lib/api';
 
 const TemplatesSection = () => {
-  const { templates, setTemplates, customers, addMessage, selectedTemplateId, setSelectedTemplateId, preSelectedCustomerId, setPreSelectedCustomerId } = useApp();
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [selTemplate, setSelTemplate] = useState<string>(selectedTemplateId || '');
-  const [selCustomer, setSelCustomer] = useState<string>(preSelectedCustomerId || '');
-  const [params, setParams] = useState<Record<string, string>>({});
-  const [customerSearch, setCustomerSearch] = useState('');
+  const [selTemplate, setSelTemplate] = useState<string>('');
+  const [selContact, setSelContact] = useState<string>('');
+  const [sending, setSending] = useState(false);
+  const [templateParams, setTemplateParams] = useState<Record<string, string>>({});
 
-  const template = templates.find(t => t.id === selTemplate);
+  useEffect(() => {
+    fetchData();
+  }, []);
 
-  const syncTemplates = () => {
+  const fetchData = async () => {
+    try {
+      const [templatesRes, contactsRes] = await Promise.all([
+        api.get<{ data: MessageTemplate[] }>('/templates'),
+        api.get<{ data: Contact[] }>('/contacts'),
+      ]);
+      setTemplates(templatesRes.data || []);
+      setContacts(contactsRes.data || []);
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const syncTemplates = async () => {
     setSyncing(true);
-    setTimeout(() => { setSyncing(false); toast.success('Templates synced'); }, 1500);
+    try {
+      await api.post('/templates/sync');
+      await fetchData();
+      toast.success('Templates synced successfully');
+    } catch (error) {
+      toast.error('Failed to sync templates');
+    } finally {
+      setSyncing(false);
+    }
   };
 
-  const handleSelectTemplate = (id: string) => {
-    setSelTemplate(id);
-    setParams({});
-  };
+  const template = templates.find(t => t.id.toString() === selTemplate);
 
-  const renderBody = () => {
-    if (!template) return '';
-    let body = template.body;
-    template.parameters.forEach((p, i) => {
-      body = body.replace(`{{${i + 1}}}`, params[p] || `{{${p}}}`);
-    });
-    return body;
-  };
+  const contactOptions = contacts.map(c => ({
+    value: c.id.toString(),
+    label: c.name ? `${c.name} (${c.phone_number})` : c.phone_number,
+  }));
 
-  const allParamsFilled = template ? template.parameters.every(p => params[p]?.trim()) : true;
+  const templateOptions = templates
+    .filter(t => t.status === 'APPROVED')
+    .map(t => ({
+      value: t.id.toString(),
+      label: t.name,
+    }));
 
-  const send = () => {
-    if (!selCustomer || !template) return;
-    const msg: Message = {
-      id: `msg-${Date.now()}`,
-      customerId: selCustomer,
-      type: 'template',
-      direction: 'outgoing',
-      content: renderBody(),
-      timestamp: new Date(),
-      status: 'sent',
-      templateName: template.name,
-      templateHeader: template.header,
-      templateFooter: template.footer,
-      templateButtons: template.buttons,
-    };
-    addMessage(msg);
-    toast.success('Template sent successfully');
-    setSelectedTemplateId(null);
-    setPreSelectedCustomerId(null);
+  const sendTemplate = async () => {
+    if (!selContact || !template) return;
+    
+    setSending(true);
+    try {
+      await api.post(`/conversations`, {
+        contact_id: parseInt(selContact),
+      });
+
+      const conversationsRes = await api.get<{ data: { id: number; contact: { id: number } }[] }>('/conversations');
+      const conversation = conversationsRes.data?.find(c => c.contact?.id === parseInt(selContact));
+      
+      if (conversation) {
+        const payload: any = { template_name: template.name };
+        
+        if (template.parameters && template.parameters.length > 0) {
+          const components = template.parameters.map(param => ({
+            type: 'body' as const,
+            parameters: [
+              {
+                type: 'text' as const,
+                key: param.key.toString(),
+                value: templateParams[param.key] || '',
+              },
+            ],
+          }));
+          payload.template_components = components;
+        }
+        
+        await api.post(`/conversations/${conversation.id}/send`, payload);
+        toast.success('Template sent successfully');
+        setSelContact('');
+        setSelTemplate('');
+        setTemplateParams({});
+      } else {
+        toast.error('No conversation found for this contact');
+      }
+    } catch (error) {
+      toast.error('Failed to send template');
+    } finally {
+      setSending(false);
+    }
   };
 
   const categoryColor = (cat: string) => {
-    if (cat === 'MARKETING') return 'bg-badge-blue/20 text-badge-blue';
-    if (cat === 'AUTHENTICATION') return 'bg-badge-yellow/20 text-badge-yellow';
-    return 'bg-muted text-muted-foreground';
+    if (cat === 'MARKETING') return { bg: 'bg-blue-100', text: 'text-blue-700' };
+    if (cat === 'AUTHENTICATION') return { bg: 'bg-yellow-100', text: 'text-yellow-700' };
+    return { bg: 'bg-gray-100', text: 'text-gray-600' };
   };
 
   const statusColor = (s: string) => {
-    if (s === 'APPROVED') return 'bg-badge-green/20 text-badge-green';
-    if (s === 'PENDING') return 'bg-badge-yellow/20 text-badge-yellow';
-    return 'bg-badge-red/20 text-badge-red';
+    if (s === 'APPROVED') return { bg: 'bg-green-100', text: 'text-green-700' };
+    if (s === 'PENDING') return { bg: 'bg-yellow-100', text: 'text-yellow-700' };
+    return { bg: 'bg-red-100', text: 'text-red-700' };
   };
 
-  const filteredCustomers = customers.filter(c =>
-    c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-    c.phone.includes(customerSearch)
-  );
+  const selectStyles = {
+    control: (base: any) => ({
+      ...base,
+      backgroundColor: 'hsl(var(--muted))',
+      border: 'none',
+      borderRadius: '0.5rem',
+      padding: '2px',
+    }),
+    input: (base: any) => ({
+      ...base,
+      color: 'hsl(var(--foreground))',
+    }),
+    menu: (base: any) => ({
+      ...base,
+      backgroundColor: 'hsl(var(--card))',
+      border: '1px solid hsl(var(--border))',
+      borderRadius: '0.5rem',
+    }),
+    option: (base: any, state: any) => ({
+      ...base,
+      backgroundColor: state.isSelected 
+        ? 'hsl(var(--primary))' 
+        : state.isFocused 
+          ? 'hsl(var(--accent))' 
+          : 'transparent',
+      color: state.isSelected 
+        ? 'hsl(var(--primary-foreground))' 
+        : 'hsl(var(--foreground))',
+      cursor: 'pointer',
+    }),
+    singleValue: (base: any) => ({
+      ...base,
+      color: 'hsl(var(--foreground))',
+    }),
+    placeholder: (base: any) => ({
+      ...base,
+      color: 'hsl(var(--muted-foreground))',
+    }),
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full">
-      {/* Left - Template list */}
       <div className="w-80 border-r border-border flex flex-col">
         <div className="p-4 border-b border-border flex items-center justify-between">
           <h2 className="font-semibold text-sm">Templates</h2>
-          <button onClick={syncTemplates} disabled={syncing} className="flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50">
+          <button 
+            onClick={syncTemplates} 
+            disabled={syncing} 
+            className="flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-50"
+          >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /> Sync
           </button>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {templates.map(t => (
-            <div key={t.id} className={`p-3 border-b border-border cursor-pointer transition-colors ${selTemplate === t.id ? 'bg-accent' : 'hover:bg-muted/50'}`} onClick={() => handleSelectTemplate(t.id)}>
-              <p className="font-medium text-sm">{t.name}</p>
-              <div className="flex items-center gap-2 mt-1.5">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded ${categoryColor(t.category)}`}>{t.category}</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded ${statusColor(t.status)}`}>{t.status}</span>
-                <span className="text-[10px] text-muted-foreground">{t.language}</span>
-              </div>
-              <button onClick={e => { e.stopPropagation(); handleSelectTemplate(t.id); }} className="mt-2 text-xs text-primary hover:underline">Use →</button>
+          {templates.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground text-center">
+              No templates found. Click Sync to fetch from Meta.
             </div>
-          ))}
+          ) : (
+            templates.map(t => (
+              <div 
+                key={t.id} 
+                className={`p-3 border-b border-border cursor-pointer transition-colors ${selTemplate === t.id.toString() ? 'bg-accent' : 'hover:bg-muted/50'}`}
+                onClick={() => setSelTemplate(t.id.toString())}
+              >
+                <p className="font-medium text-sm">{t.name}</p>
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${categoryColor(t.category).bg} ${categoryColor(t.category).text}`}>{t.category}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${statusColor(t.status).bg} ${statusColor(t.status).text}`}>{t.status}</span>
+                  <span className="text-[10px] text-muted-foreground">{t.language}</span>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
-      {/* Right - Send form */}
       <div className="flex-1 p-6 overflow-y-auto">
         <h2 className="font-semibold mb-4">Send Template</h2>
-        <div className="max-w-lg space-y-4">
-          {/* Step 1: Customer */}
-          <div>
-            <label className="text-xs text-muted-foreground font-medium">Step 1: Select Customer</label>
-            <input value={customerSearch} onChange={e => setCustomerSearch(e.target.value)} placeholder="Search customers..." className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1 mb-1" />
-            <select value={selCustomer} onChange={e => setSelCustomer(e.target.value)} className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none">
-              <option value="">Choose customer...</option>
-              {filteredCustomers.map(c => (
-                <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
-              ))}
-            </select>
+        
+        {templates.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">
+            <p>No templates available.</p>
+            <p className="text-sm mt-2">Click "Sync" to fetch templates from Meta.</p>
           </div>
-
-          {/* Step 2: Template */}
-          <div>
-            <label className="text-xs text-muted-foreground font-medium">Step 2: Select Template</label>
-            <select value={selTemplate} onChange={e => handleSelectTemplate(e.target.value)} className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1">
-              <option value="">Choose template...</option>
-              {templates.filter(t => t.status === 'APPROVED').map(t => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Step 3: Params */}
-          {template && template.parameters.length > 0 && (
+        ) : (
+          <div className="max-w-lg space-y-6">
             <div>
-              <label className="text-xs text-muted-foreground font-medium">Step 3: Fill Parameters</label>
-              <div className="space-y-2 mt-1">
-                {template.parameters.map(p => (
-                  <div key={p}>
-                    <label className="text-xs text-muted-foreground capitalize">{`{{${template.parameters.indexOf(p) + 1}}} — ${p.replace('_', ' ')}`}</label>
-                    <input value={params[p] || ''} onChange={e => setParams({ ...params, [p]: e.target.value })} className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1" />
+              <label className="text-xs text-muted-foreground font-medium block mb-2">Select Contact</label>
+              <Select
+                options={contactOptions}
+                value={contactOptions.find(o => o.value === selContact)}
+                onChange={(option) => setSelContact(option?.value || '')}
+                placeholder="Search and select a contact..."
+                isSearchable
+                styles={selectStyles}
+                className="text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground font-medium block mb-2">Select Template</label>
+              <Select
+                options={templateOptions}
+                value={templateOptions.find(o => o.value === selTemplate)}
+                onChange={(option) => { setSelTemplate(option?.value || ''); setTemplateParams({}); }}
+                placeholder="Choose a template..."
+                isSearchable
+                styles={selectStyles}
+                className="text-sm"
+              />
+            </div>
+
+            {template && template.parameters && template.parameters.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground font-medium">Template Parameters</p>
+                {template.parameters.map((param) => (
+                  <div key={param.key}>
+                    <label className="text-xs text-muted-foreground capitalize">{param.label || `Parameter ${param.key}`}</label>
+                    <input
+                      type="text"
+                      value={templateParams[param.key] || ''}
+                      onChange={(e) => setTemplateParams({ ...templateParams, [param.key]: e.target.value })}
+                      className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1"
+                      placeholder={`Enter value for {{${param.key}}}`}
+                    />
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Preview */}
-          {template && (
-            <div>
-              <p className="text-xs text-muted-foreground font-medium mb-2">Preview</p>
-              <div className="bg-wa-outgoing rounded-lg p-4 text-sm space-y-1.5 max-w-xs">
-                {template.header && <p className="font-semibold">{template.header}</p>}
-                <p>{renderBody()}</p>
-                {template.footer && <p className="text-xs text-muted-foreground">{template.footer}</p>}
-                {template.buttons?.map((btn, i) => (
-                  <button key={i} className="w-full text-center text-xs text-primary border border-primary/30 rounded py-1 mt-1">{btn.text}</button>
-                ))}
+            {template && (
+              <div>
+                <p className="text-xs text-muted-foreground font-medium mb-2">Preview</p>
+                <div className="bg-muted rounded-lg p-4 text-sm space-y-1.5 max-w-md border border-border">
+                  {template.header_content && <p className="font-semibold">{template.header_content}</p>}
+                  <p>{template.content}</p>
+                  {template.footer_content && <p className="text-xs text-muted-foreground">{template.footer_content}</p>}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <button onClick={send} disabled={!selCustomer || !template || !allParamsFilled} className="w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">
-            Send Template
-          </button>
-        </div>
+            <button 
+              onClick={sendTemplate} 
+              disabled={!selContact || !template || sending}
+              className="w-full bg-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+            >
+              {sending && <Loader2 className="w-4 h-4 animate-spin" />}
+              Send Template
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

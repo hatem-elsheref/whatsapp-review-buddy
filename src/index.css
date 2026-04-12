@@ -55,6 +55,59 @@
     --badge-green: 145 63% 49%;
     --badge-gray: 215 15% 55%;
   }
+
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 145 63% 49%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 20% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 20% 96%;
+    --muted-foreground: 215 15% 45%;
+
+    --accent: 210 20% 96%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 14% 90%;
+    --input: 214 14% 90%;
+    --ring: 145 63% 49%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 210 20% 98%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 145 63% 49%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 20% 96%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 214 14% 90%;
+    --sidebar-ring: 145 63% 49%;
+
+    --wa-green: 145 63% 49%;
+    --wa-green-dark: 145 63% 35%;
+    --wa-incoming: 210 20% 96%;
+    --wa-outgoing: 145 63% 90%;
+    --wa-chat-bg: 0 0% 98%;
+
+    --badge-blue: 210 80% 55%;
+    --badge-yellow: 45 93% 47%;
+    --badge-red: 0 84% 60%;
+    --badge-green: 145 63% 49%;
+    --badge-gray: 215 15% 55%;
+  }
 }
 
 @layer base {

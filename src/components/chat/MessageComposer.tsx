@@ -1,37 +1,50 @@
 import { useState } from 'react';
-import { Send, List, MousePointerClick, Link, FileText, ChevronDown } from 'lucide-react';
-import { useApp } from '../../context/AppContext';
-import { Message } from '../../types';
+import { Send, FileText, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import SendInteractiveListModal from './modals/SendInteractiveListModal';
-import SendButtonsModal from './modals/SendButtonsModal';
-import SendCTAModal from './modals/SendCTAModal';
+import { api, Message } from '@/lib/api';
 import SendTemplateModal from './modals/SendTemplateModal';
 
-const MessageComposer = () => {
-  const { selectedCustomerId, addMessage } = useApp();
-  const [text, setText] = useState('');
-  const [showActions, setShowActions] = useState(false);
-  const [modal, setModal] = useState<'list' | 'buttons' | 'cta' | 'template' | null>(null);
+interface MessageComposerProps {
+  conversationId: number;
+  canSendFreeText: boolean;
+  onMessageSent: (message: Message) => void;
+}
 
-  const sendText = () => {
-    if (!text.trim() || !selectedCustomerId) return;
-    const msg: Message = {
-      id: `msg-${Date.now()}`,
-      customerId: selectedCustomerId,
-      type: 'text',
-      direction: 'outgoing',
-      content: text.trim(),
-      timestamp: new Date(),
-      status: 'sent',
-    };
-    addMessage(msg);
-    setText('');
-    toast.success('Message sent');
-    // Simulate delivery status
-    setTimeout(() => {
-      msg.status = 'delivered';
-    }, 1000);
+const MessageComposer = ({ conversationId, canSendFreeText, onMessageSent }: MessageComposerProps) => {
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+
+  const sendText = async () => {
+    if (!text.trim() || !conversationId) return;
+    if (!canSendFreeText) {
+      toast.error('24h window closed. Please send a template.');
+      return;
+    }
+
+    setSending(true);
+    try {
+      await api.post(`/conversations/${conversationId}/send`, { message: text.trim() });
+      
+      const msg: Message = {
+        id: Date.now(),
+        conversation_id: conversationId,
+        contact_id: 0,
+        direction: 'outbound',
+        type: 'text',
+        content: text.trim(),
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+      onMessageSent(msg);
+      setText('');
+      toast.success('Message sent');
+    } catch (error) {
+      toast.error('Failed to send message');
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -45,51 +58,42 @@ const MessageComposer = () => {
     <>
       <div className="p-3 border-t border-border bg-card">
         <div className="flex items-center gap-2">
-          <div className="relative">
-            <button
-              onClick={() => setShowActions(!showActions)}
-              className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
-            >
-              <ChevronDown className={`w-5 h-5 transition-transform ${showActions ? 'rotate-180' : ''}`} />
-            </button>
-            {showActions && (
-              <div className="absolute bottom-full left-0 mb-2 bg-popover border border-border rounded-lg shadow-lg py-1 w-48 z-10">
-                <button onClick={() => { setModal('list'); setShowActions(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2">
-                  <List className="w-4 h-4" /> Send Interactive List
-                </button>
-                <button onClick={() => { setModal('buttons'); setShowActions(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2">
-                  <MousePointerClick className="w-4 h-4" /> Send Buttons
-                </button>
-                <button onClick={() => { setModal('cta'); setShowActions(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2">
-                  <Link className="w-4 h-4" /> Send CTA
-                </button>
-                <button onClick={() => { setModal('template'); setShowActions(false); }} className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2">
-                  <FileText className="w-4 h-4" /> Send Template
-                </button>
-              </div>
-            )}
-          </div>
+          <button
+            onClick={() => setShowTemplateModal(true)}
+            className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+            title="Send Template"
+          >
+            <FileText className="w-5 h-5" />
+          </button>
           <input
             value={text}
             onChange={e => setText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
-            className="flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none focus:ring-1 focus:ring-primary"
+            placeholder={canSendFreeText ? "Type a message..." : "24h window closed - send a template"}
+            disabled={!canSendFreeText}
+            className={`flex-1 bg-muted rounded-lg px-4 py-2 text-sm outline-none focus:ring-1 focus:ring-primary ${!canSendFreeText ? 'opacity-50 cursor-not-allowed' : ''}`}
           />
           <button
             onClick={sendText}
-            disabled={!text.trim()}
+            disabled={!text.trim() || sending || !canSendFreeText}
             className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
-            <Send className="w-5 h-5" />
+            {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
           </button>
         </div>
+        {!canSendFreeText && (
+          <p className="text-xs text-yellow-600 mt-2">
+            24h window expired. You can only send templates until the customer replies.
+          </p>
+        )}
       </div>
 
-      {modal === 'list' && <SendInteractiveListModal onClose={() => setModal(null)} />}
-      {modal === 'buttons' && <SendButtonsModal onClose={() => setModal(null)} />}
-      {modal === 'cta' && <SendCTAModal onClose={() => setModal(null)} />}
-      {modal === 'template' && <SendTemplateModal onClose={() => setModal(null)} />}
+      {showTemplateModal && (
+        <SendTemplateModal 
+          conversationId={conversationId} 
+          onClose={() => setShowTemplateModal(false)} 
+        />
+      )}
     </>
   );
 };
