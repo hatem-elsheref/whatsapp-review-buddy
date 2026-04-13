@@ -14,6 +14,11 @@ interface LoginResponse {
   token: string;
 }
 
+type LoginErrorResponse = {
+  message?: string;
+  errors?: Record<string, string[]>;
+};
+
 const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,10 +47,10 @@ const LoginPage = () => {
         body: JSON.stringify(body),
       });
 
-      const data: any = await response.json();
+      const data = (await response.json()) as LoginResponse | LoginErrorResponse;
 
       if (!response.ok) {
-        const message = data.message || data.errors?.email?.[0] || 'Authentication failed';
+        const message = ('message' in data && data.message) || ('errors' in data && data.errors?.email?.[0]) || 'Authentication failed';
         setErrorMessage(message);
         setLoading(false);
         return;
@@ -57,8 +62,9 @@ const LoginPage = () => {
         toast.success('Account created! Your account is pending approval.');
         navigate('/pending-verification', { state: { email, name } });
       } else {
-        localStorage.setItem('auth_token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        const okData = data as LoginResponse;
+        localStorage.setItem('auth_token', okData.token);
+        localStorage.setItem('user', JSON.stringify(okData.user));
         toast.success('Logged in!');
         navigate('/');
       }

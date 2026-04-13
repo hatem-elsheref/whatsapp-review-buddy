@@ -3,6 +3,18 @@ import Select from 'react-select';
 import { RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, MessageTemplate, Contact } from '@/lib/api';
+import type { StylesConfig } from 'react-select';
+
+type TemplateSendPayload = {
+  template_name: string;
+  template_components?: Array<{
+    type: 'body';
+    parameters: Array<{ type: 'text'; key: string; text: string }>;
+  }>;
+  template_language?: string;
+};
+
+type SelectOption = { value: string; label: string };
 
 const TemplatesSection = () => {
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -61,32 +73,31 @@ const TemplatesSection = () => {
     }));
 
   const sendTemplate = async () => {
-    if (!selContact || !template) return;
+    if (!selContact || !template || !canSend) return;
     
     setSending(true);
     try {
-      await api.post(`/conversations`, {
-        contact_id: parseInt(selContact),
-      });
-
       const conversationsRes = await api.get<{ data: { id: number; contact: { id: number } }[] }>('/conversations');
-      const conversation = conversationsRes.data?.find(c => c.contact?.id === parseInt(selContact));
+      let conversation = conversationsRes.data?.find(c => c.contact?.id === parseInt(selContact));
+      
+      if (!conversation) {
+        const createRes = await api.post<{ data: { id: number } }>('/conversations', {
+          contact_id: parseInt(selContact),
+        });
+        conversation = { id: createRes.data?.id };
+      }
       
       if (conversation) {
-        const payload: any = { template_name: template.name };
+        const payload: TemplateSendPayload = { template_name: template.name };
         
         if (template.parameters && template.parameters.length > 0) {
-          const components = template.parameters.map(param => ({
-            type: 'body' as const,
-            parameters: [
-              {
-                type: 'text' as const,
-                key: param.key.toString(),
-                value: templateParams[param.key] || '',
-              },
-            ],
+          const parameters = template.parameters.map((param, index) => ({
+            type: 'text' as const,
+            key: (index + 1).toString(),
+            text: templateParams[param.key] || '',
           }));
-          payload.template_components = components;
+          payload.template_components = [{ type: 'body' as const, parameters }];
+          payload.template_language = template.language || 'ar';
         }
         
         await api.post(`/conversations/${conversation.id}/send`, payload);
@@ -104,6 +115,10 @@ const TemplatesSection = () => {
     }
   };
 
+  const canSend = !!selContact && !!template && 
+    (!template.parameters || template.parameters.length === 0 || 
+      template.parameters.every(p => templateParams[p.key]?.trim()));
+
   const categoryColor = (cat: string) => {
     if (cat === 'MARKETING') return { bg: 'bg-blue-100', text: 'text-blue-700' };
     if (cat === 'AUTHENTICATION') return { bg: 'bg-yellow-100', text: 'text-yellow-700' };
@@ -116,25 +131,25 @@ const TemplatesSection = () => {
     return { bg: 'bg-red-100', text: 'text-red-700' };
   };
 
-  const selectStyles = {
-    control: (base: any) => ({
+  const selectStyles: StylesConfig<SelectOption, false> = {
+    control: (base) => ({
       ...base,
       backgroundColor: 'hsl(var(--muted))',
       border: 'none',
       borderRadius: '0.5rem',
       padding: '2px',
     }),
-    input: (base: any) => ({
+    input: (base) => ({
       ...base,
       color: 'hsl(var(--foreground))',
     }),
-    menu: (base: any) => ({
+    menu: (base) => ({
       ...base,
       backgroundColor: 'hsl(var(--card))',
       border: '1px solid hsl(var(--border))',
       borderRadius: '0.5rem',
     }),
-    option: (base: any, state: any) => ({
+    option: (base, state) => ({
       ...base,
       backgroundColor: state.isSelected 
         ? 'hsl(var(--primary))' 
@@ -146,11 +161,11 @@ const TemplatesSection = () => {
         : 'hsl(var(--foreground))',
       cursor: 'pointer',
     }),
-    singleValue: (base: any) => ({
+    singleValue: (base) => ({
       ...base,
       color: 'hsl(var(--foreground))',
     }),
-    placeholder: (base: any) => ({
+    placeholder: (base) => ({
       ...base,
       color: 'hsl(var(--muted-foreground))',
     }),
@@ -268,7 +283,7 @@ const TemplatesSection = () => {
 
             <button 
               onClick={sendTemplate} 
-              disabled={!selContact || !template || sending}
+              disabled={!canSend || sending}
               className="w-full bg-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
             >
               {sending && <Loader2 className="w-4 h-4 animate-spin" />}

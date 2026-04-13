@@ -121,7 +121,10 @@ export interface Message {
   type: string;
   content: string | null;
   template_name: string | null;
+  interactive_payload?: unknown[] | Record<string, unknown> | null;
+  media_id?: string | null;
   media_url: string | null;
+  media_type?: string | null;
   status: string | null;
   sent_at: string | null;
   created_at: string;

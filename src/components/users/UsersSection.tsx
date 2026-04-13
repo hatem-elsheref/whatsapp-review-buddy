@@ -1,23 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Users, Plus, Loader2, Edit, Trash2, Check, X, Search } from 'lucide-react';
 import { toast } from 'sonner';
-import { api, User } from '@/lib/api';
-
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  role: string;
-  status: string;
-  created_at: string;
-}
+import { api, User as ApiUser } from '@/lib/api';
 
 const UsersSection = () => {
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<ApiUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editingUser, setEditingUser] = useState<ApiUser | null>(null);
   const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'agent' });
   const [saving, setSaving] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -28,7 +19,7 @@ const UsersSection = () => {
 
   const fetchUsers = async () => {
     try {
-      const data = await api.get<{ data: User[] }>('/users');
+      const data = await api.get<{ data: ApiUser[] }>('/users');
       setUsers(data.data || []);
     } catch (error) {
       console.error('Failed to fetch users:', error);
@@ -58,7 +49,7 @@ const UsersSection = () => {
     if (!editingUser) return;
     setSaving(true);
     try {
-      const updateData: any = { name: formData.name, role: formData.role };
+      const updateData: { name: string; role: string; password?: string } = { name: formData.name, role: formData.role };
       if (formData.password) updateData.password = formData.password;
       
       await api.put(`/users/${editingUser.id}`, updateData);

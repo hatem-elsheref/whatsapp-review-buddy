@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Search, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -24,11 +24,7 @@ const WebhookLogsSection = () => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
 
-  useEffect(() => {
-    fetchLogs();
-  }, [page, filter]);
-
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
       const url = new URLSearchParams();
@@ -36,19 +32,23 @@ const WebhookLogsSection = () => {
       if (filter !== 'ALL') {
         url.append('event_type', filter);
       }
-      const data = await api.get<{ data: any[]; meta: any }>(`/webhook-logs?${url}`);
+      const data = await api.get<{ data: WebhookLog[]; meta: { last_page?: number } }>(`/webhook-logs?${url}`);
       if (page === 1) {
         setLogs(data.data || []);
       } else {
         setLogs(prev => [...prev, ...(data.data || [])]);
       }
-      setHasMore(data.meta?.last_page > page);
+      setHasMore((data.meta?.last_page || 1) > page);
     } catch (error) {
       console.error('Failed to fetch logs:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, page]);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
 
   const filtered = logs.filter(l => {
     if (search) {

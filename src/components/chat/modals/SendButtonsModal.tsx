@@ -1,32 +1,66 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { useApp } from '../../../context/AppContext';
-import { Message } from '../../../types';
+import { api, Message } from '@/lib/api';
 import { toast } from 'sonner';
 
-const SendButtonsModal = ({ onClose }: { onClose: () => void }) => {
-  const { selectedCustomerId, addMessage } = useApp();
+interface SendButtonsModalProps {
+  conversationId: number;
+  onClose: () => void;
+  onMessageSent?: (message: Message) => void;
+}
+
+const SendButtonsModal = ({ conversationId, onClose, onMessageSent }: SendButtonsModalProps) => {
   const [body, setBody] = useState('');
   const [buttons, setButtons] = useState(['', '', '']);
+  const [sending, setSending] = useState(false);
 
   const validButtons = buttons.filter(b => b.trim());
   const canSend = body.trim() && validButtons.length > 0;
 
-  const send = () => {
-    if (!selectedCustomerId || !canSend) return;
-    const msg: Message = {
-      id: `msg-${Date.now()}`,
-      customerId: selectedCustomerId,
-      type: 'interactive_buttons',
-      direction: 'outgoing',
-      content: body,
-      timestamp: new Date(),
-      status: 'sent',
-      buttons: validButtons,
-    };
-    addMessage(msg);
-    toast.success('Buttons message sent');
-    onClose();
+  const send = async () => {
+    if (!conversationId || !canSend) return;
+
+    const payloadButtons = validButtons.slice(0, 3).map((title, idx) => ({
+      id: `btn-${Date.now()}-${idx}`,
+      title: title.trim(),
+    }));
+
+    setSending(true);
+    try {
+      await api.post(`/conversations/${conversationId}/send`, {
+        type: 'interactive_buttons',
+        body: body.trim(),
+        buttons: payloadButtons,
+      });
+
+      toast.success('Buttons message sent');
+
+      if (onMessageSent) {
+        onMessageSent({
+          id: Date.now(),
+          conversation_id: conversationId,
+          contact_id: 0,
+          direction: 'outbound',
+          type: 'text',
+          content: body.trim(),
+          template_name: null,
+          media_url: null,
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          interactive_payload: {
+            type: 'button',
+            buttons: payloadButtons,
+          },
+        });
+      }
+
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to send buttons message');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -49,7 +83,7 @@ const SendButtonsModal = ({ onClose }: { onClose: () => void }) => {
               </div>
             ))}
           </div>
-          <button onClick={send} disabled={!canSend} className="mt-4 w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">Send</button>
+          <button onClick={send} disabled={!canSend || sending} className="mt-4 w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">Send</button>
         </div>
         <div className="w-56 border-l border-border bg-wa-chat-bg p-4">
           <p className="text-xs text-muted-foreground mb-3">Preview</p>

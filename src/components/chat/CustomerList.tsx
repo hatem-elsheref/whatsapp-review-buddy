@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api, Conversation, Contact } from '@/lib/api';
 import { Loader2 } from 'lucide-react';
+import { formatDistanceStrict } from 'date-fns';
 
 interface CustomerListProps {
   onSelectConversation: (conversation: Conversation) => void;
@@ -10,9 +11,15 @@ interface CustomerListProps {
 const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     fetchConversations();
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
   }, []);
 
   const fetchConversations = async () => {
@@ -33,6 +40,21 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
     return `${Math.floor(diff / 86400000)}d`;
+  };
+
+  const isWindowOpen = (windowExpiresAt: string | null) => {
+    if (!windowExpiresAt) return false;
+    const t = new Date(windowExpiresAt).getTime();
+    if (Number.isNaN(t)) return false;
+    return t > Date.now();
+  };
+
+  const getWindowTimeLeft = (windowExpiresAt: string | null) => {
+    if (!windowExpiresAt) return null;
+    const t = new Date(windowExpiresAt).getTime();
+    if (Number.isNaN(t)) return null;
+    if (t <= now) return null;
+    return formatDistanceStrict(t, now, { roundingMethod: 'floor' });
   };
 
   if (loading) {
@@ -77,7 +99,9 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
                       {lastMsgTime && <span className="text-xs text-muted-foreground">{formatTime(lastMsgTime)}</span>}
                     </div>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {conv.window_expires_at ? 'Active' : 'Window closed - send template'}
+                      {isWindowOpen(conv.window_expires_at)
+                        ? `Active • ${getWindowTimeLeft(conv.window_expires_at) ?? '24h window'} left`
+                        : 'Template only'}
                     </p>
                   </div>
                 </div>

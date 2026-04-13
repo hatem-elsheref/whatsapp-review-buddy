@@ -1,17 +1,23 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { useApp } from '../../../context/AppContext';
-import { Message, InteractiveListSection } from '../../../types';
+import { api, Message } from '@/lib/api';
+import { InteractiveListSection } from '../../../types';
 import { toast } from 'sonner';
 
-const SendInteractiveListModal = ({ onClose }: { onClose: () => void }) => {
-  const { selectedCustomerId, addMessage } = useApp();
+interface SendInteractiveListModalProps {
+  conversationId: number;
+  onClose: () => void;
+  onMessageSent?: (message: Message) => void;
+}
+
+const SendInteractiveListModal = ({ conversationId, onClose, onMessageSent }: SendInteractiveListModalProps) => {
   const [header, setHeader] = useState('');
   const [body, setBody] = useState('');
   const [buttonLabel, setButtonLabel] = useState('View Options');
   const [sections, setSections] = useState<InteractiveListSection[]>([
     { title: 'Section 1', options: [{ id: 'opt-1', title: '', description: '' }] },
   ]);
+  const [sending, setSending] = useState(false);
 
   const addSection = () => {
     setSections([...sections, { title: `Section ${sections.length + 1}`, options: [{ id: `opt-${Date.now()}`, title: '' }] }]);
@@ -32,29 +38,63 @@ const SendInteractiveListModal = ({ onClose }: { onClose: () => void }) => {
 
   const updateOption = (sIdx: number, oIdx: number, field: 'title' | 'description', val: string) => {
     const s = [...sections];
-    (s[sIdx].options[oIdx] as any)[field] = val;
+    s[sIdx].options[oIdx] = { ...s[sIdx].options[oIdx], [field]: val };
     setSections(s);
   };
 
   const hasValidSection = sections.some(s => s.options.some(o => o.title.trim()));
 
-  const send = () => {
-    if (!selectedCustomerId || !body.trim() || !hasValidSection) return;
-    const msg: Message = {
-      id: `msg-${Date.now()}`,
-      customerId: selectedCustomerId,
-      type: 'interactive_list',
-      direction: 'outgoing',
-      content: body,
-      timestamp: new Date(),
-      status: 'sent',
-      listHeader: header || undefined,
-      listButtonLabel: buttonLabel,
-      listSections: sections.filter(s => s.options.some(o => o.title.trim())),
-    };
-    addMessage(msg);
-    toast.success('Interactive list sent');
-    onClose();
+  const send = async () => {
+    if (!conversationId || !body.trim() || !hasValidSection) return;
+
+    const mappedSections = sections
+      .filter(s => s.options.some(o => o.title.trim()))
+      .map(s => ({
+        title: s.title,
+        rows: s.options
+          .filter(o => o.title.trim())
+          .map(o => ({ id: o.id, title: o.title, description: o.description || undefined })),
+      }));
+
+    setSending(true);
+    try {
+      await api.post(`/conversations/${conversationId}/send`, {
+        type: 'interactive_list',
+        body: body.trim(),
+        button_label: buttonLabel.trim() || 'View options',
+        sections: mappedSections,
+      });
+
+      toast.success('Interactive list sent');
+
+      if (onMessageSent) {
+        onMessageSent({
+          id: Date.now(),
+          conversation_id: conversationId,
+          contact_id: 0,
+          direction: 'outbound',
+          type: 'text',
+          content: body.trim(),
+          template_name: null,
+          media_url: null,
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          interactive_payload: {
+            type: 'list',
+            header: header || undefined,
+            button: buttonLabel.trim() || 'View options',
+            sections: mappedSections,
+          },
+        });
+      }
+
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to send interactive list');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -95,7 +135,7 @@ const SendInteractiveListModal = ({ onClose }: { onClose: () => void }) => {
             ))}
             <button onClick={addSection} className="text-xs text-primary hover:underline">+ Add section</button>
           </div>
-          <button onClick={send} disabled={!body.trim() || !hasValidSection} className="mt-4 w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">
+          <button onClick={send} disabled={!body.trim() || !hasValidSection || sending} className="mt-4 w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">
             Send
           </button>
         </div>

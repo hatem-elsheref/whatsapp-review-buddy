@@ -13,6 +13,22 @@ interface SettingsData {
   verify_token: string;
 }
 
+type VerifyEntity = {
+  ok: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+};
+
+type VerifyResponse = {
+  ok: boolean;
+  webhook_url_reachable?: boolean;
+  verify_token_valid?: boolean;
+  waba_subscribed?: boolean;
+  waba?: VerifyEntity;
+  phone?: VerifyEntity;
+  [key: string]: unknown;
+};
+
 const SettingsSection = () => {
   const [settings, setSettings] = useState<SettingsData>({
     phone_number_id: '',
@@ -27,8 +43,8 @@ const SettingsSection = () => {
     app_secret: false,
     access_token: false,
   });
-  const [healthChecks, setHealthChecks] = useState<Record<string, any>>({});
-  const [connectionInfo, setConnectionInfo] = useState<{ waba: any; phone: any } | null>(null);
+  const [healthChecks, setHealthChecks] = useState<VerifyResponse | Record<string, never>>({});
+  const [connectionInfo, setConnectionInfo] = useState<{ waba: VerifyEntity; phone: VerifyEntity } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -84,12 +100,12 @@ const SettingsSection = () => {
     setChecking(true);
     setConnectionInfo(null);
     try {
-      const response = await api.get<{ data: any }>('/settings/verify');
+      const response = await api.get<{ data: VerifyResponse }>('/settings/verify');
       setHealthChecks(response.data);
       if (response.data.ok) {
         setConnectionInfo({
-          waba: response.data.waba,
-          phone: response.data.phone,
+          waba: response.data.waba || { ok: false },
+          phone: response.data.phone || { ok: false },
         });
         toast.success('Connection test passed!');
       } else {

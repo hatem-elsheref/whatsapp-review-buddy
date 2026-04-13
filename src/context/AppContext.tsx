@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { Customer, Message, Template, WebhookLog, Section } from '../types';
 import { mockCustomers, mockMessages, mockTemplates, mockWebhookLogs } from '../data/mockData';
+import { subscribeToChat, playNotificationSound, NewMessageEvent } from '../lib/pusher';
 
 interface AppState {
   activeSection: Section;
@@ -44,6 +45,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addWebhookLog = useCallback((log: WebhookLog) => {
     setWebhookLogs(prev => [log, ...prev]);
+  }, []);
+
+  useEffect(() => {
+    const handleNewMessage = (msg: NewMessageEvent) => {
+      const message: Message = {
+        id: msg.id.toString(),
+        customerId: msg.contact_id.toString(),
+        content: msg.content || '',
+        type: msg.type,
+        direction: msg.direction,
+        timestamp: new Date(msg.created_at),
+        status: 'received',
+      };
+      setMessages(prev => [message, ...prev]);
+      playNotificationSound();
+    };
+
+    return subscribeToChat(handleNewMessage);
   }, []);
 
   return (

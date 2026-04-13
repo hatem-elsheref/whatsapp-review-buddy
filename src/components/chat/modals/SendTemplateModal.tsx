@@ -1,14 +1,24 @@
 import { useState, useEffect } from 'react';
 import { X, Loader2 } from 'lucide-react';
-import { api, MessageTemplate } from '@/lib/api';
+import { api, Message, MessageTemplate } from '@/lib/api';
 import { toast } from 'sonner';
 
 interface SendTemplateModalProps {
   conversationId: number;
   onClose: () => void;
+  onMessageSent?: (message: Message) => void;
 }
 
-const SendTemplateModal = ({ conversationId, onClose }: SendTemplateModalProps) => {
+type TemplateSendPayload = {
+  template_name: string;
+  template_components?: Array<{
+    type: 'body';
+    parameters: Array<{ type: 'text'; key: string; text: string }>;
+  }>;
+  template_language?: string;
+};
+
+const SendTemplateModal = ({ conversationId, onClose, onMessageSent }: SendTemplateModalProps) => {
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
@@ -55,23 +65,38 @@ const SendTemplateModal = ({ conversationId, onClose }: SendTemplateModalProps) 
     if (!conversationId || !template) return;
     setSending(true);
     try {
-      const payload: any = { template_name: template.name };
+      const payload: TemplateSendPayload = { template_name: template.name };
       
       if (template.parameters && template.parameters.length > 0) {
-        payload.template_components = template.parameters.map(param => ({
-          type: 'body',
-          parameters: [
-            {
-              type: 'text',
-              key: param.key.toString(),
-              value: params[param.key] || '',
-            },
-          ],
+        const parameters = template.parameters.map((param, index) => ({
+          type: 'text' as const,
+          key: (index + 1).toString(),
+          text: params[param.key] || '',
         }));
+        payload.template_components = [{ type: 'body', parameters }];
+        payload.template_language = template.language || 'ar';
       }
       
       await api.post(`/conversations/${conversationId}/send`, payload);
       toast.success('Template sent successfully');
+      
+      if (onMessageSent) {
+        onMessageSent({
+          id: Date.now(),
+          conversation_id: conversationId,
+          contact_id: 0,
+          direction: 'outbound',
+          type: 'template',
+          content: null,
+          template_name: template.name,
+          meta_message_id: null,
+          media_url: null,
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+        });
+      }
+      
       onClose();
     } catch (error) {
       toast.error('Failed to send template');
