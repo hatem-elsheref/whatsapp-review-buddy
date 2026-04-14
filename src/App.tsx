@@ -25,8 +25,10 @@ const AppLayout = () => (
   </div>
 );
 
+const routerBasename = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") || undefined;
+
 const App = () => (
-  <BrowserRouter>
+  <BrowserRouter basename={routerBasename} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
     <ThemeProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />

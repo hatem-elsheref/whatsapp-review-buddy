@@ -78,6 +78,17 @@ export interface MetaSettings {
   webhook_subscriptions: string[] | null;
 }
 
+export interface AiSettings {
+  id: number;
+  provider: 'openai' | 'anthropic' | 'groq' | 'gemini' | 'custom';
+  model: string;
+  api_key: string | null;
+  base_url: string | null;
+  default_language: string;
+  default_tone: string;
+  system_prompt: string | null;
+}
+
 export interface MessageTemplate {
   id: number;
   meta_template_id: string;
@@ -110,6 +121,27 @@ export interface Conversation {
   window_expires_at: string | null;
   status: 'open' | 'closed';
   contact?: Contact;
+}
+
+export function contactDisplayName(contact: Contact | null | undefined): string {
+  if (!contact) return 'Unknown Contact';
+  const name = contact.name?.trim();
+  if (name) return name;
+  const profile = contact.profile_name?.trim();
+  if (profile) return profile;
+  if (contact.phone_number) return contact.phone_number;
+  return 'Unknown Contact';
+}
+
+export function contactAvatarLabel(contact: Contact | null | undefined): string {
+  if (!contact) return '?';
+  const name = contact.name?.trim();
+  const profile = contact.profile_name?.trim();
+  if (name) return name.charAt(0).toUpperCase();
+  if (profile) return profile.charAt(0).toUpperCase();
+  const phone = contact.phone_number;
+  if (phone && phone.length >= 2) return phone.slice(-2);
+  return '?';
 }
 
 export interface Message {

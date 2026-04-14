@@ -1,6 +1,6 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { formatDistanceStrict } from 'date-fns';
-import { api, Conversation, Message } from '@/lib/api';
+import { api, contactAvatarLabel, contactDisplayName, Conversation, Message } from '@/lib/api';
 import ChatBubble from './ChatBubble';
 import MessageComposer from './MessageComposer';
 import { Loader2, MessageCircle as MessageSquare } from 'lucide-react';
@@ -65,6 +65,8 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
   };
 
   const contact = conversation.contact;
+  const headerName = contactDisplayName(contact);
+  const avatarLabel = contactAvatarLabel(contact);
 
   if (loading) {
     return (
@@ -79,12 +81,12 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
       <div className="p-4 border-b border-border flex items-center gap-3 bg-card">
         <div className="relative">
           <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center text-white font-bold text-lg shadow-md">
-            {contact?.name?.charAt(0).toUpperCase() || contact?.phone_number?.slice(-2) || '?'}
+            {avatarLabel}
           </div>
           <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
         </div>
         <div className="flex-1">
-          <p className="font-semibold text-base">{contact?.name || 'Unknown Contact'}</p>
+          <p className="font-semibold text-base">{headerName}</p>
           <p className="text-sm text-muted-foreground">{contact?.phone_number}</p>
         </div>
         {windowOpen && (

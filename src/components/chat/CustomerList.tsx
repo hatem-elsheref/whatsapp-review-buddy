@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { api, Conversation, Contact } from '@/lib/api';
+import { useState, useEffect } from 'react';
+import { api, contactAvatarLabel, contactDisplayName, Conversation } from '@/lib/api';
 import { Loader2 } from 'lucide-react';
 import { formatDistanceStrict } from 'date-fns';
 
@@ -79,6 +79,8 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
         ) : (
           conversations.map((conv) => {
             const contact = conv.contact;
+            const listTitle = contactDisplayName(contact);
+            const listAvatar = contactAvatarLabel(contact);
             const lastMsgTime = conv.last_message_at;
             const isActive = selectedId === conv.id;
             return (
@@ -91,11 +93,11 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                    {contact?.name?.charAt(0).toUpperCase() || contact?.phone_number?.slice(-2) || '?'}
+                    {listAvatar}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-center">
-                      <span className="font-medium text-sm truncate">{contact?.name || contact?.phone_number || 'Unknown'}</span>
+                      <span className="font-medium text-sm truncate">{listTitle}</span>
                       {lastMsgTime && <span className="text-xs text-muted-foreground">{formatTime(lastMsgTime)}</span>}
                     </div>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">

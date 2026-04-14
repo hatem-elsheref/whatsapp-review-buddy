@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Eye, EyeOff, CheckCircle2, XCircle, Shield, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle2, XCircle, Shield, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { api, MetaSettings } from '@/lib/api';
+import { api, AiSettings, MetaSettings } from '@/lib/api';
 
 interface SettingsData {
   phone_number_id: string;
@@ -29,6 +29,16 @@ type VerifyResponse = {
   [key: string]: unknown;
 };
 
+interface AiSettingsData {
+  provider: AiSettings['provider'];
+  model: string;
+  api_key: string;
+  base_url: string;
+  default_language: string;
+  default_tone: string;
+  system_prompt: string;
+}
+
 const SettingsSection = () => {
   const [settings, setSettings] = useState<SettingsData>({
     phone_number_id: '',
@@ -49,8 +59,22 @@ const SettingsSection = () => {
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
 
+  const [ai, setAi] = useState<AiSettingsData>({
+    provider: 'openai',
+    model: 'gpt-4o-mini',
+    api_key: '',
+    base_url: '',
+    default_language: 'auto',
+    default_tone: 'helpful',
+    system_prompt: '',
+  });
+  const [aiLoading, setAiLoading] = useState(true);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [showAiKey, setShowAiKey] = useState(false);
+
   useEffect(() => {
     fetchSettings();
+    fetchAiSettings();
   }, []);
 
   const fetchSettings = async () => {
@@ -74,6 +98,27 @@ const SettingsSection = () => {
     }
   };
 
+  const fetchAiSettings = async () => {
+    try {
+      const response = await api.get<{ data: AiSettings | null }>('/ai-settings');
+      if (response.data) {
+        setAi({
+          provider: response.data.provider,
+          model: response.data.model || 'gpt-4o-mini',
+          api_key: response.data.api_key || '',
+          base_url: response.data.base_url || '',
+          default_language: response.data.default_language || 'auto',
+          default_tone: response.data.default_tone || 'helpful',
+          system_prompt: response.data.system_prompt || '',
+        });
+      }
+    } catch (e) {
+      console.error('Failed to fetch AI settings', e);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -93,6 +138,26 @@ const SettingsSection = () => {
       toast.error('Failed to save settings');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveAiSettings = async () => {
+    setAiSaving(true);
+    try {
+      await api.post('/ai-settings', {
+        provider: ai.provider,
+        model: ai.model,
+        api_key: ai.api_key || null,
+        base_url: ai.base_url || null,
+        default_language: ai.default_language,
+        default_tone: ai.default_tone,
+        system_prompt: ai.system_prompt || null,
+      });
+      toast.success('AI settings saved');
+    } catch (e) {
+      toast.error('Failed to save AI settings');
+    } finally {
+      setAiSaving(false);
     }
   };
 
@@ -205,6 +270,130 @@ const SettingsSection = () => {
               </div>
             ))}
           </div>
+        </div>
+
+        <div className="bg-card rounded-xl border border-border p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-medium text-sm flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" />
+              AI Configuration
+            </h3>
+            <button
+              onClick={saveAiSettings}
+              disabled={aiSaving || aiLoading}
+              className="text-xs bg-primary text-primary-foreground px-3 py-2 rounded-lg disabled:opacity-50"
+            >
+              {aiSaving ? 'Saving...' : 'Save AI'}
+            </button>
+          </div>
+
+          {aiLoading ? (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading AI settings...
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground">Provider</label>
+                  <select
+                    value={ai.provider}
+                    onChange={(e) => setAi((p) => ({ ...p, provider: e.target.value as AiSettingsData['provider'] }))}
+                    className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1"
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="groq">Groq</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="custom">Custom (OpenAI-compatible)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Model</label>
+                  <input
+                    value={ai.model}
+                    onChange={(e) => setAi((p) => ({ ...p, model: e.target.value }))}
+                    className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1 font-mono"
+                    placeholder="e.g. gpt-4o-mini"
+                  />
+                </div>
+              </div>
+
+              {ai.provider === 'custom' && (
+                <div>
+                  <label className="text-xs text-muted-foreground">Base URL</label>
+                  <input
+                    value={ai.base_url}
+                    onChange={(e) => setAi((p) => ({ ...p, base_url: e.target.value }))}
+                    className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1 font-mono"
+                    placeholder="https://api.example.com"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs text-muted-foreground">API Key</label>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type={showAiKey ? 'text' : 'password'}
+                    value={ai.api_key}
+                    onChange={(e) => setAi((p) => ({ ...p, api_key: e.target.value }))}
+                    className="flex-1 bg-muted rounded-lg px-3 py-2 text-sm outline-none font-mono"
+                    placeholder="Enter API key"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAiKey((s) => !s)}
+                    className="p-2 hover:bg-muted rounded text-muted-foreground"
+                    title={showAiKey ? 'Hide' : 'Show'}
+                  >
+                    {showAiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground">Default Language</label>
+                  <select
+                    value={ai.default_language}
+                    onChange={(e) => setAi((p) => ({ ...p, default_language: e.target.value }))}
+                    className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1"
+                  >
+                    <option value="auto">Auto</option>
+                    <option value="ar">Arabic</option>
+                    <option value="en">English</option>
+                    <option value="bilingual">Bilingual</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Default Tone</label>
+                  <select
+                    value={ai.default_tone}
+                    onChange={(e) => setAi((p) => ({ ...p, default_tone: e.target.value }))}
+                    className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1"
+                  >
+                    {['helpful', 'formal', 'casual', 'empathetic', 'technical', 'concise'].map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-muted-foreground">Global System Prompt</label>
+                <textarea
+                  value={ai.system_prompt}
+                  onChange={(e) => setAi((p) => ({ ...p, system_prompt: e.target.value }))}
+                  className="w-full bg-muted rounded-lg px-3 py-2 text-sm outline-none mt-1"
+                  rows={4}
+                  placeholder="You are a helpful WhatsApp assistant..."
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="bg-card rounded-xl border border-border p-5">

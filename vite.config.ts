@@ -3,8 +3,15 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 
-// https://vitejs.dev/config/
+// Production build is emitted into Laravel's public/spa (served under /spa/).
+// Dev server keeps base "/" for simpler local URLs.
 export default defineConfig(({ mode }) => ({
+  base: mode === "production" ? "/spa/" : "/",
+  build: {
+    outDir: path.resolve(__dirname, "../backend/public/spa"),
+    emptyOutDir: true,
+    assetsDir: "assets",
+ },
   server: {
     host: "::",
     port: 8080,
