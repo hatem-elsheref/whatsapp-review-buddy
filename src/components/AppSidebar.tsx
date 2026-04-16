@@ -1,4 +1,4 @@
-import { MessageSquare, FileText, Users, Webhook, Settings, Sun, Moon, LogOut, UsersRound, Workflow } from 'lucide-react';
+import { MessageSquare, FileText, Users, Webhook, Settings, Sun, Moon, LogOut, UsersRound, Workflow, BarChart3 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTheme } from '../context/ThemeContext';
 import { Section } from '../types';
@@ -15,6 +15,7 @@ const AppSidebar = () => {
   const isAdmin = user?.role === 'admin';
 
   const navItems: { section: Section; label: string; icon: React.ElementType }[] = [
+    { section: 'dashboard', label: 'Dashboard', icon: BarChart3 },
     { section: 'chat', label: 'Chat Inbox', icon: MessageSquare },
     { section: 'templates', label: 'Templates', icon: FileText },
     { section: 'customers', label: 'Customers', icon: Users },

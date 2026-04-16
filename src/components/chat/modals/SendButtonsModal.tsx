@@ -27,26 +27,27 @@ const SendButtonsModal = ({ conversationId, onClose, onMessageSent }: SendButton
 
     setSending(true);
     try {
-      await api.post(`/conversations/${conversationId}/send`, {
+      const res = await api.post<{ id?: number; status?: string; meta_message_id?: string | null }>(`/conversations/${conversationId}/send`, {
         type: 'interactive_buttons',
         body: body.trim(),
         buttons: payloadButtons,
       });
 
-      toast.success('Buttons message sent');
+      toast.success(res?.status === 'queued' ? 'Buttons message queued' : 'Buttons message sent');
 
       if (onMessageSent) {
         onMessageSent({
-          id: Date.now(),
+          id: res?.id ?? Date.now(),
           conversation_id: conversationId,
           contact_id: 0,
           direction: 'outbound',
-          type: 'text',
+          type: 'interactive',
           content: body.trim(),
           template_name: null,
           media_url: null,
-          status: 'sent',
-          sent_at: new Date().toISOString(),
+          status: res?.status ?? 'sent',
+          meta_message_id: res?.meta_message_id ?? null,
+          sent_at: res?.status === 'queued' ? null : new Date().toISOString(),
           created_at: new Date().toISOString(),
           interactive_payload: {
             type: 'button',
@@ -69,7 +70,7 @@ const SendButtonsModal = ({ conversationId, onClose, onMessageSent }: SendButton
         <div className="flex-1 p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold">Send Buttons</h3>
-            <button onClick={onClose}><X className="w-5 h-5 text-muted-foreground" /></button>
+            <button type="button" onClick={onClose}><X className="w-5 h-5 text-muted-foreground" /></button>
           </div>
           <div className="space-y-3">
             <div>
@@ -83,7 +84,7 @@ const SendButtonsModal = ({ conversationId, onClose, onMessageSent }: SendButton
               </div>
             ))}
           </div>
-          <button onClick={send} disabled={!canSend || sending} className="mt-4 w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">Send</button>
+          <button type="button" onClick={send} disabled={!canSend || sending} className="mt-4 w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">Send</button>
         </div>
         <div className="w-56 border-l border-border bg-wa-chat-bg p-4">
           <p className="text-xs text-muted-foreground mb-3">Preview</p>

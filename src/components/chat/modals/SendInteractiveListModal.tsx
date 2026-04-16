@@ -58,27 +58,28 @@ const SendInteractiveListModal = ({ conversationId, onClose, onMessageSent }: Se
 
     setSending(true);
     try {
-      await api.post(`/conversations/${conversationId}/send`, {
+      const res = await api.post<{ id?: number; status?: string; meta_message_id?: string | null }>(`/conversations/${conversationId}/send`, {
         type: 'interactive_list',
         body: body.trim(),
         button_label: buttonLabel.trim() || 'View options',
         sections: mappedSections,
       });
 
-      toast.success('Interactive list sent');
+      toast.success(res?.status === 'queued' ? 'Interactive list queued' : 'Interactive list sent');
 
       if (onMessageSent) {
         onMessageSent({
-          id: Date.now(),
+          id: res?.id ?? Date.now(),
           conversation_id: conversationId,
           contact_id: 0,
           direction: 'outbound',
-          type: 'text',
+          type: 'interactive',
           content: body.trim(),
           template_name: null,
           media_url: null,
-          status: 'sent',
-          sent_at: new Date().toISOString(),
+          status: res?.status ?? 'sent',
+          meta_message_id: res?.meta_message_id ?? null,
+          sent_at: res?.status === 'queued' ? null : new Date().toISOString(),
           created_at: new Date().toISOString(),
           interactive_payload: {
             type: 'list',
@@ -104,7 +105,7 @@ const SendInteractiveListModal = ({ conversationId, onClose, onMessageSent }: Se
         <div className="flex-1 p-5 overflow-y-auto">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold">Send Interactive List</h3>
-            <button onClick={onClose}><X className="w-5 h-5 text-muted-foreground" /></button>
+            <button type="button" onClick={onClose}><X className="w-5 h-5 text-muted-foreground" /></button>
           </div>
           <div className="space-y-3">
             <div>
@@ -129,13 +130,13 @@ const SendInteractiveListModal = ({ conversationId, onClose, onMessageSent }: Se
                   </div>
                 ))}
                 {section.options.length < 5 && (
-                  <button onClick={() => addOption(sIdx)} className="text-xs text-primary hover:underline">+ Add option</button>
+                  <button type="button" onClick={() => addOption(sIdx)} className="text-xs text-primary hover:underline">+ Add option</button>
                 )}
               </div>
             ))}
-            <button onClick={addSection} className="text-xs text-primary hover:underline">+ Add section</button>
+            <button type="button" onClick={addSection} className="text-xs text-primary hover:underline">+ Add section</button>
           </div>
-          <button onClick={send} disabled={!body.trim() || !hasValidSection || sending} className="mt-4 w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">
+          <button type="button" onClick={send} disabled={!body.trim() || !hasValidSection || sending} className="mt-4 w-full bg-primary text-primary-foreground rounded-lg py-2 text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors">
             Send
           </button>
         </div>

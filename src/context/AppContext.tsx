@@ -31,7 +31,7 @@ export const useApp = () => {
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeSection, setActiveSection] = useState<Section>('chat');
+  const [activeSection, setActiveSection] = useState<Section>('dashboard');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>(mockMessages);
   const [templates, setTemplates] = useState<Template[]>(mockTemplates);
@@ -59,7 +59,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'received',
       };
       setMessages(prev => [message, ...prev]);
-      playNotificationSound();
+      if (msg.direction === 'inbound') {
+        playNotificationSound();
+      }
     };
 
     return subscribeToChat(handleNewMessage);

@@ -1,4 +1,5 @@
 import { useApp } from '../context/AppContext';
+import DashboardSection from './dashboard/DashboardSection';
 import ChatInbox from './chat/ChatInbox';
 import TemplatesSection from './templates/TemplatesSection';
 import CustomersSection from './customers/CustomersSection';
@@ -12,6 +13,7 @@ const MainContent = () => {
   const { activeSection } = useApp();
 
   const sections: Record<string, React.ReactNode> = {
+    dashboard: <DashboardSection />,
     chat: <ChatInbox />,
     templates: <TemplatesSection />,
     customers: <CustomersSection />,

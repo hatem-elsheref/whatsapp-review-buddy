@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { api, contactAvatarLabel, contactDisplayName, Conversation } from '@/lib/api';
+import { useState, useEffect, useRef } from 'react';
+import { api, contactAvatarLabel, contactDisplayName, Conversation, Contact } from '@/lib/api';
 import { Loader2 } from 'lucide-react';
 import { formatDistanceStrict } from 'date-fns';
+import { playNotificationSound, subscribeToChat, NewMessageEvent } from '@/lib/pusher';
 
 interface CustomerListProps {
   onSelectConversation: (conversation: Conversation) => void;
@@ -12,14 +13,61 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
+  const conversationsRef = useRef<Conversation[]>([]);
 
   useEffect(() => {
     fetchConversations();
   }, []);
 
   useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeToChat(async (evt: NewMessageEvent) => {
+      // Play sound on inbound only.
+      if (evt.direction === 'inbound') {
+        playNotificationSound();
+      }
+
+      setConversations((prev) => {
+        const idx = prev.findIndex((c) => c.id === evt.conversation_id);
+        if (idx === -1) {
+          return prev;
+        }
+        const updated: Conversation = { ...prev[idx], last_message_at: evt.created_at };
+        const next = [updated, ...prev.filter((c) => c.id !== evt.conversation_id)];
+        return next;
+      });
+
+      // If this conversation isn't loaded in the current page, fetch and add it.
+      if (!conversationsRef.current.some((c) => c.id === evt.conversation_id)) {
+        try {
+          const res = await api.get<{ data: { id: number; contact?: Contact; window_expires_at: string | null } }>(
+            `/conversations/${evt.conversation_id}`
+          );
+          const c = res.data;
+          const conv: Conversation = {
+            id: c.id,
+            contact_id: c.contact?.id ?? 0,
+            wa_conversation_id: null,
+            last_message_at: evt.created_at,
+            window_expires_at: c.window_expires_at ?? null,
+            status: 'open',
+            contact: c.contact,
+          };
+          setConversations((prev) => [conv, ...prev.filter((x) => x.id !== conv.id)]);
+        } catch {
+          // ignore
+        }
+      }
+    });
+    return unsub;
   }, []);
 
   const fetchConversations = async () => {

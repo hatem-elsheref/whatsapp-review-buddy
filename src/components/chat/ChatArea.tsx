@@ -4,6 +4,7 @@ import { api, contactAvatarLabel, contactDisplayName, Conversation, Message } fr
 import ChatBubble from './ChatBubble';
 import MessageComposer from './MessageComposer';
 import { Loader2, MessageCircle as MessageSquare } from 'lucide-react';
+import { subscribeToChat, NewMessageEvent, MessageStatusUpdatedEvent } from '@/lib/pusher';
 
 interface ChatAreaProps {
   conversation: Conversation;
@@ -13,6 +14,8 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
+  const [windowExpiresAt, setWindowExpiresAt] = useState<string | null>(conversation.window_expires_at ?? null);
+  const [windowOpenOverride, setWindowOpenOverride] = useState<boolean | null>(conversation.window_open ?? null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -21,15 +24,16 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
   }, []);
 
   const expiresAtMs = useMemo(() => {
-    if (!conversation.window_expires_at) return null;
-    const t = new Date(conversation.window_expires_at).getTime();
+    if (!windowExpiresAt) return null;
+    const t = new Date(windowExpiresAt).getTime();
     return Number.isNaN(t) ? null : t;
-  }, [conversation.window_expires_at]);
+  }, [windowExpiresAt]);
 
   const windowOpen = useMemo(() => {
+    if (windowOpenOverride !== null) return windowOpenOverride;
     if (!expiresAtMs) return false;
     return expiresAtMs > now;
-  }, [expiresAtMs, now]);
+  }, [expiresAtMs, now, windowOpenOverride]);
 
   const windowLabel = useMemo(() => {
     if (!expiresAtMs) return null;
@@ -63,6 +67,54 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
   const handleNewMessage = (msg: Message) => {
     setMessages(prev => [...prev, msg]);
   };
+
+  useEffect(() => {
+    const unsub = subscribeToChat((evt: NewMessageEvent) => {
+      if (evt.conversation_id !== conversation.id) return;
+      if (typeof evt.window_open === 'boolean') setWindowOpenOverride(evt.window_open);
+      if (evt.window_expires_at) setWindowExpiresAt(evt.window_expires_at);
+      setMessages((prev) => {
+        if (prev.some((m) => String(m.id) === String(evt.id))) return prev;
+        const next: Message = {
+          id: evt.id,
+          conversation_id: evt.conversation_id,
+          contact_id: evt.contact_id,
+          meta_message_id: null,
+          direction: evt.direction,
+          type: evt.type,
+          content: evt.content,
+          template_name: null,
+          template_components: null,
+          interactive_payload: null,
+          media_id: null,
+          media_url: null,
+          media_download_url: null,
+          media_type: null,
+          status: null,
+          sent_at: null,
+          created_at: evt.created_at,
+        };
+        return [...prev, next];
+      });
+    }, (s: MessageStatusUpdatedEvent) => {
+      if (s.conversation_id !== conversation.id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id) === String(s.id)
+            ? {
+                ...m,
+                status: s.status,
+                meta_message_id: s.meta_message_id,
+                sent_at: s.sent_at ?? m.sent_at,
+                delivered_at: s.delivered_at ?? m.delivered_at,
+                read_at: s.read_at ?? m.read_at,
+              }
+            : m
+        )
+      );
+    });
+    return unsub;
+  }, [conversation.id]);
 
   const contact = conversation.contact;
   const headerName = contactDisplayName(contact);
@@ -104,7 +156,7 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 bg-gradient-to-b from-gray-50 to-white">
+      <div className="flex-1 overflow-y-auto bg-gradient-to-b from-gray-50 to-white">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center">
             <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-4">
@@ -114,7 +166,7 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
             <p className="text-sm text-muted-foreground mt-1">Start the conversation</p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="w-full px-4 py-4 space-y-3">
             {messages.map((msg, index) => {
               const msgDate = msg.created_at ? new Date(msg.created_at) : null;
               const prevMsgDate = index > 0 && messages[index - 1].created_at ? new Date(messages[index - 1].created_at) : null;
@@ -124,7 +176,7 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
                 <div key={msg.id}>
                   {showDate && msgDate && (
                     <div className="flex justify-center my-4">
-                      <span className="text-xs bg-gray-200 text-gray-600 px-3 py-1 rounded-full">
+                      <span className="text-[11px] bg-white/80 border border-gray-200 text-gray-600 px-3 py-1 rounded-full shadow-sm">
                         {msgDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                       </span>
                     </div>

@@ -6,14 +6,38 @@ import MainContent from './components/MainContent';
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import LoginPage from './pages/LoginPage';
 import PendingVerificationPage from './pages/PendingVerificationPage';
+import { api } from './lib/api';
+import { useEffect, useState } from 'react';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('auth_token');
   const location = useLocation();
+  const [checking, setChecking] = useState(true);
   
   if (!token) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await api.get<{ user: unknown }>('/me');
+        if (mounted && (res as any)?.user) {
+          localStorage.setItem('user', JSON.stringify((res as any).user));
+        }
+      } catch {
+        // api.ts will handle redirect on auth failure
+      } finally {
+        if (mounted) setChecking(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (checking) return null;
   
   return <>{children}</>;
 };

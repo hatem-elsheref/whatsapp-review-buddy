@@ -52,7 +52,7 @@ const UsersSection = () => {
       const updateData: { name: string; role: string; password?: string } = { name: formData.name, role: formData.role };
       if (formData.password) updateData.password = formData.password;
       
-      await api.put(`/users/${editingUser.id}`, updateData);
+      await api.post(`/users/${editingUser.id}/update`, updateData);
       toast.success('User updated successfully');
       setEditingUser(null);
       setFormData({ name: '', email: '', password: '', role: 'agent' });
@@ -67,7 +67,7 @@ const UsersSection = () => {
   const handleDeleteUser = async (id: number) => {
     if (!confirm('Are you sure you want to delete this user?')) return;
     try {
-      await api.delete(`/users/${id}`);
+      await api.post(`/users/${id}/delete`);
       toast.success('User deleted');
       fetchUsers();
     } catch (error) {

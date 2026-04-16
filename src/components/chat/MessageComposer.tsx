@@ -28,22 +28,28 @@ const MessageComposer = ({ conversationId, canSendFreeText, onMessageSent }: Mes
 
     setSending(true);
     try {
-      await api.post(`/conversations/${conversationId}/send`, { message: text.trim() });
+      const res = await api.post<{ id?: number; status?: string; meta_message_id?: string | null }>(
+        `/conversations/${conversationId}/send`,
+        { message: text.trim() }
+      );
       
       const msg: Message = {
-        id: Date.now(),
+        id: res?.id ?? Date.now(),
         conversation_id: conversationId,
         contact_id: 0,
         direction: 'outbound',
         type: 'text',
         content: text.trim(),
-        status: 'sent',
-        sent_at: new Date().toISOString(),
+        template_name: null,
+        media_url: null,
+        status: res?.status ?? 'sent',
+        meta_message_id: res?.meta_message_id ?? null,
+        sent_at: res?.status === 'queued' ? null : new Date().toISOString(),
         created_at: new Date().toISOString(),
       };
       onMessageSent(msg);
       setText('');
-      toast.success('Message sent');
+      toast.success(res?.status === 'queued' ? 'Message queued' : 'Message sent');
     } catch (error) {
       toast.error('Failed to send message');
     } finally {
@@ -110,6 +116,7 @@ const MessageComposer = ({ conversationId, canSendFreeText, onMessageSent }: Mes
             disabled={!text.trim() || sending || !canSendFreeText}
             className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             title={canSendFreeText ? 'Send message' : 'Window closed'}
+            type="button"
           >
             {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
           </button>

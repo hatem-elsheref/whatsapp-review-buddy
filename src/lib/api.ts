@@ -12,6 +12,11 @@ export const queryClient = new QueryClient({
   },
 });
 
+function resolveUrl(endpoint: string): string {
+  if (/^https?:\/\//i.test(endpoint)) return endpoint;
+  return `${API_BASE_URL}${endpoint}`;
+}
+
 async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('auth_token');
   
@@ -24,13 +29,47 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    headers,
-    ...options,
-  });
+  const doFetch = async (overrideToken?: string | null) => {
+    const h: Record<string, string> = { ...headers };
+    const t = overrideToken ?? token;
+    if (t) h['Authorization'] = `Bearer ${t}`;
+    return fetch(resolveUrl(endpoint), {
+      headers: h,
+      ...options,
+    });
+  };
+
+  let response = await doFetch();
+
+  // If token expired, try refresh once then retry.
+  if (response.status === 401 && token) {
+    try {
+      const refreshRes = await fetch(`${API_BASE_URL}/refresh`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (refreshRes.ok) {
+        const refreshData = await refreshRes.json();
+        const newToken = refreshData.token as string | undefined;
+        if (newToken) {
+          localStorage.setItem('auth_token', newToken);
+          if (refreshData.user) localStorage.setItem('user', JSON.stringify(refreshData.user));
+          if (refreshData.expires_at) localStorage.setItem('auth_expires_at', String(refreshData.expires_at));
+          response = await doFetch(newToken);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   if (response.status === 401) {
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_expires_at');
     localStorage.removeItem('user');
     window.location.href = '/login';
     throw new Error('Unauthorized');
@@ -45,12 +84,43 @@ async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> 
   return response.json();
 }
 
+async function fetchBlob(endpoint: string, options?: RequestInit): Promise<Blob> {
+  const token = localStorage.getItem('auth_token');
+
+  const headers: Record<string, string> = {
+    'Accept': '*/*',
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(resolveUrl(endpoint), {
+    headers,
+    ...options,
+  });
+
+  if (response.status === 401) {
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user');
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
+  }
+
+  if (!response.ok) {
+    throw new Error('API Error');
+  }
+
+  return await response.blob();
+}
+
 async function fetchWithAuth<T>(endpoint: string, options?: RequestInit): Promise<T> {
   return fetchApi<T>(endpoint, options);
 }
 
 export const api = {
   get: <T>(endpoint: string) => fetchApi<T>(endpoint),
+  getBlob: (endpoint: string) => fetchBlob(endpoint),
   post: <T>(endpoint: string, data?: unknown) =>
     fetchApi<T>(endpoint, {
       method: 'POST',
@@ -115,10 +185,13 @@ export interface Contact {
 
 export interface Conversation {
   id: number;
-  contact_id: number;
-  wa_conversation_id: string | null;
+  wa_conversation_id?: string | null;
   last_message_at: string | null;
+  last_message_at_local?: string | null;
   window_expires_at: string | null;
+  window_expires_at_local?: string | null;
+  window_open?: boolean;
+  window_remaining_seconds?: number | null;
   status: 'open' | 'closed';
   contact?: Contact;
 }
@@ -153,12 +226,17 @@ export interface Message {
   type: string;
   content: string | null;
   template_name: string | null;
+  template_components?: unknown[] | Record<string, unknown> | null;
   interactive_payload?: unknown[] | Record<string, unknown> | null;
   media_id?: string | null;
-  media_url: string | null;
+  media_type?: string | null;
+  media_download_url?: string | null;
+  media_url?: string | null;
   media_type?: string | null;
   status: string | null;
   sent_at: string | null;
+  delivered_at?: string | null;
+  read_at?: string | null;
   created_at: string;
 }
 

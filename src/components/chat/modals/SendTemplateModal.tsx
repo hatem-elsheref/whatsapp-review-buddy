@@ -77,22 +77,25 @@ const SendTemplateModal = ({ conversationId, onClose, onMessageSent }: SendTempl
         payload.template_language = template.language || 'ar';
       }
       
-      await api.post(`/conversations/${conversationId}/send`, payload);
-      toast.success('Template sent successfully');
+      const res = await api.post<{ id?: number; status?: string; meta_message_id?: string | null }>(
+        `/conversations/${conversationId}/send`,
+        payload
+      );
+      toast.success(res?.status === 'queued' ? 'Template queued' : 'Template sent successfully');
       
       if (onMessageSent) {
         onMessageSent({
-          id: Date.now(),
+          id: res?.id ?? Date.now(),
           conversation_id: conversationId,
           contact_id: 0,
           direction: 'outbound',
           type: 'template',
           content: null,
           template_name: template.name,
-          meta_message_id: null,
           media_url: null,
-          status: 'sent',
-          sent_at: new Date().toISOString(),
+          status: res?.status ?? 'sent',
+          meta_message_id: res?.meta_message_id ?? null,
+          sent_at: res?.status === 'queued' ? null : new Date().toISOString(),
           created_at: new Date().toISOString(),
         });
       }

@@ -52,7 +52,7 @@ const CustomersSection = () => {
   const handleDeleteContact = async (id: number) => {
     if (!confirm('Are you sure you want to delete this contact?')) return;
     try {
-      await api.delete(`/contacts/${id}`);
+      await api.post(`/contacts/${id}/delete`);
       toast.success('Contact deleted');
       fetchContacts();
     } catch (error) {

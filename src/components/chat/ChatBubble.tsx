@@ -1,8 +1,52 @@
-import { Message } from '@/lib/api';
-import { Check, CheckCheck } from 'lucide-react';
+import { api, Message } from '@/lib/api';
+import { Check, CheckCheck, Clock, XCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import MediaViewerModal from './MediaViewerModal';
 
 const ChatBubble = ({ message }: { message: Message }) => {
-  const isOutgoing = message.direction === 'outbound';
+  const direction = String((message as any).direction ?? '').toLowerCase();
+  const isOutgoing =
+    direction === 'outbound' ||
+    direction === 'outgoing' ||
+    // fallback for legacy rows
+    (direction === '' && (message as any).status === 'sent');
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  const [mediaType, setMediaType] = useState<string | null>(null);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const autoLoadMedia = useMemo(() => {
+    const mt = (message.media_type ?? '').toLowerCase();
+    const t = (message.type ?? '').toLowerCase();
+    return Boolean(message.media_id) && (mt.startsWith('image/') || t === 'image');
+  }, [message.media_id, message.media_type, message.type]);
+
+  useEffect(() => {
+    return () => {
+      if (mediaUrl) URL.revokeObjectURL(mediaUrl);
+    };
+  }, [mediaUrl]);
+
+  useEffect(() => {
+    if (!autoLoadMedia) return;
+    if (mediaUrl || mediaLoading) return;
+    void (async () => {
+      await handleLoadMedia();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoLoadMedia]);
+
+  const displayText = useMemo(() => {
+    const raw = (message.content ?? '').trim();
+    if (raw) return raw;
+    if (message.media_id) {
+      const t = (message.type || '').toLowerCase();
+      if (t) return `[${t}]`;
+      return '[media]';
+    }
+    if (message.interactive_payload) return '[interactive]';
+    const t = (message.type || '').toLowerCase();
+    return t ? `[${t}]` : '';
+  }, [message.content, message.interactive_payload, message.media_id, message.type]);
 
   const interactive = (message.interactive_payload ?? null) as
     | null
@@ -36,32 +80,58 @@ const ChatBubble = ({ message }: { message: Message }) => {
 
   const StatusIcon = () => {
     if (!isOutgoing) return null;
+    if (message.status === 'queued') return <Clock className="w-4 h-4 text-gray-400" />;
+    if (message.status === 'failed') return <XCircle className="w-4 h-4 text-red-500" />;
     if (message.status === 'read') return <CheckCheck className="w-4 h-4 text-blue-500" />;
     if (message.status === 'delivered') return <CheckCheck className="w-4 h-4 text-green-600" />;
     return <Check className="w-4 h-4 text-gray-400" />;
   };
 
-  return (
-    <div className={`flex ${isOutgoing ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-1 duration-200`}>
-      <div className={`max-w-[80%] ${isOutgoing ? 'items-end' : 'items-start'} flex flex-col`}>
-        {message.type === 'template' && message.template_name && (
-          <span className="text-[11px] text-muted-foreground mb-1 px-1">
-            📋 {message.template_name}
-          </span>
-        )}
+  const handleLoadMedia = async () => {
+    if (!message.media_id || mediaLoading || mediaUrl) return;
+    setMediaLoading(true);
+    try {
+      const blob = await api.getBlob(message.media_download_url || `/messages/${message.id}/media`);
+      setMediaType(blob.type || null);
+      setMediaUrl(URL.createObjectURL(blob));
+    } finally {
+      setMediaLoading(false);
+    }
+  };
 
-        {message.interactive_payload && (
-          <span className="text-[11px] text-muted-foreground mb-1 px-1">
-            🧩 Interactive message
-          </span>
-        )}
-        
-        <div className={`px-4 py-2.5 rounded-2xl shadow-sm ${
-          isOutgoing 
-            ? 'bg-gradient-to-r from-green-500 to-green-600 text-white rounded-br-sm' 
-            : 'bg-white text-foreground rounded-bl-sm border border-gray-100'
-        }`}>
-          <p className="text-[15px] leading-relaxed">{message.content}</p>
+  const openViewer = async () => {
+    if (!message.media_id) return;
+    if (!mediaUrl && !mediaLoading) {
+      await handleLoadMedia();
+    }
+    setViewerOpen(true);
+  };
+
+  return (
+    <div className="w-full animate-in fade-in slide-in-from-bottom-1 duration-200">
+      <div
+        className={`flex flex-col max-w-[85%] sm:max-w-[60%] ${
+          isOutgoing ? 'ml-auto items-end pr-2 self-end' : 'mr-auto items-start pl-2 self-start'
+        }`}
+      >
+        <div
+          className={`px-4 py-2.5 rounded-2xl shadow-sm ${
+            isOutgoing
+              ? 'bg-emerald-600 text-white rounded-br-md'
+              : 'bg-gray-100 text-foreground rounded-bl-md border border-gray-200'
+          }`}
+        >
+          {message.type === 'template' && message.template_name ? (
+            <div className={`text-[11px] mb-1 ${isOutgoing ? 'text-white/80' : 'text-muted-foreground'}`}>
+              Template: {message.template_name}
+            </div>
+          ) : null}
+
+          {displayText ? (
+            <p dir="auto" className="text-[15px] leading-relaxed whitespace-pre-wrap">
+              {displayText}
+            </p>
+          ) : null}
 
           {!isOutgoing && interactive?.type === 'button_reply' && (
             <div className="mt-2">
@@ -136,14 +206,38 @@ const ChatBubble = ({ message }: { message: Message }) => {
           )}
 
           {message.media_id && (
-            <a
-              href={`${import.meta.env.VITE_API_URL || ''}/messages/${message.id}/media`}
-              target="_blank"
-              rel="noreferrer"
-              className={`mt-2 inline-flex text-xs underline ${isOutgoing ? 'text-white/90' : 'text-primary'}`}
-            >
-              Download media
-            </a>
+            <div className="mt-2 space-y-2">
+              {mediaUrl && (mediaType?.startsWith('image/') ?? false) ? (
+                <button type="button" onClick={openViewer} className="block">
+                  <img
+                    src={mediaUrl}
+                    alt="attachment"
+                    className="max-h-72 rounded-lg border border-black/10 cursor-zoom-in"
+                  />
+                </button>
+              ) : null}
+
+              {!autoLoadMedia && (
+                <button
+                  type="button"
+                  onClick={openViewer}
+                  className={`inline-flex text-xs font-medium ${isOutgoing ? 'text-white/90' : 'text-primary'}`}
+                  disabled={mediaLoading}
+                >
+                  {mediaLoading ? 'Loading…' : 'Open media'}
+                </button>
+              )}
+
+              {mediaUrl && !(mediaType?.startsWith('image/') ?? false) ? (
+                <button
+                  type="button"
+                  onClick={() => setViewerOpen(true)}
+                  className={`block text-xs font-medium ${isOutgoing ? 'text-white/90' : 'text-primary'}`}
+                >
+                  View / download
+                </button>
+              ) : null}
+            </div>
           )}
         </div>
 
@@ -152,6 +246,14 @@ const ChatBubble = ({ message }: { message: Message }) => {
           {isOutgoing && <StatusIcon />}
         </div>
       </div>
+
+      <MediaViewerModal
+        open={viewerOpen}
+        title={`Message #${message.id}`}
+        url={mediaUrl}
+        mimeType={mediaType || message.media_type || null}
+        onClose={() => setViewerOpen(false)}
+      />
     </div>
   );
 };

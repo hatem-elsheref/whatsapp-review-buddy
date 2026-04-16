@@ -10,8 +10,11 @@ interface LoginResponse {
     id: number;
     name: string;
     email: string;
+    role?: string;
+    status?: string;
   };
   token: string;
+  expires_at?: string | null;
 }
 
 type LoginErrorResponse = {
@@ -65,6 +68,7 @@ const LoginPage = () => {
         const okData = data as LoginResponse;
         localStorage.setItem('auth_token', okData.token);
         localStorage.setItem('user', JSON.stringify(okData.user));
+        if (okData.expires_at) localStorage.setItem('auth_expires_at', okData.expires_at);
         toast.success('Logged in!');
         navigate('/');
       }
