@@ -1,4 +1,4 @@
-import { MessageSquare, FileText, Users, Webhook, Settings, Sun, Moon, LogOut, UsersRound, Workflow, BarChart3 } from 'lucide-react';
+import { MessageSquare, FileText, Users, Webhook, Settings, Sun, Moon, LogOut, UsersRound, Workflow, BarChart3, ClipboardList } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTheme } from '../context/ThemeContext';
 import { Section } from '../types';
@@ -24,6 +24,7 @@ const AppSidebar = () => {
       { section: 'flow' as Section, label: 'Flow Builder', icon: Workflow },
       { section: 'settings' as Section, label: 'Settings', icon: Settings },
       { section: 'users' as Section, label: 'Users', icon: UsersRound },
+      { section: 'audit' as Section, label: 'Audit log', icon: ClipboardList },
     ] : []),
   ];
 

@@ -11,6 +11,9 @@ export interface NewMessageEvent {
   content: string | null;
   type: string;
   direction: 'inbound' | 'outbound';
+  sender_kind?: string;
+  sent_by_user_id?: number | null;
+  sent_by_user?: { id: number; name: string; email: string } | null;
   created_at: string;
   window_open?: boolean;
   window_expires_at?: string | null;

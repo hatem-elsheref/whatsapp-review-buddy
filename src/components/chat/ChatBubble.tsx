@@ -1,4 +1,16 @@
 import { api, Message } from '@/lib/api';
+
+function outgoingSenderCaption(message: Message): string | null {
+  const k = (message.sender_kind ?? '').toLowerCase();
+  if (k === 'agent') {
+    const n = message.sent_by_user?.name?.trim();
+    return n ? n : 'Agent';
+  }
+  if (k === 'system') return 'Automation';
+  if (k === 'integration') return 'API / integration';
+  if (k === 'contact') return null;
+  return null;
+}
 import { Check, CheckCheck, Clock, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import MediaViewerModal from './MediaViewerModal';
@@ -10,6 +22,7 @@ const ChatBubble = ({ message }: { message: Message }) => {
     direction === 'outgoing' ||
     // fallback for legacy rows
     (direction === '' && (message as any).status === 'sent');
+  const outgoingCaption = isOutgoing ? outgoingSenderCaption(message) : null;
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<string | null>(null);
   const [mediaLoading, setMediaLoading] = useState(false);
@@ -124,6 +137,12 @@ const ChatBubble = ({ message }: { message: Message }) => {
           {message.type === 'template' && message.template_name ? (
             <div className={`text-[11px] mb-1 ${isOutgoing ? 'text-white/80' : 'text-muted-foreground'}`}>
               Template: {message.template_name}
+            </div>
+          ) : null}
+
+          {outgoingCaption ? (
+            <div className={`text-[10px] mb-1 font-medium ${isOutgoing ? 'text-white/75' : 'text-muted-foreground'}`}>
+              {outgoingCaption}
             </div>
           ) : null}
 

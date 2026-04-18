@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Search, MessageSquare, FileText, Plus, Loader2, Trash2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Search, Plus, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { api, Contact } from '@/lib/api';
+import { api, Contact, contactCreatedViaLabel, PaginatedResponse } from '@/lib/api';
 
 interface ContactFormData {
   phone_number: string;
@@ -12,24 +12,67 @@ interface ContactFormData {
 
 const CustomersSection = () => {
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [meta, setMeta] = useState<PaginatedResponse<Contact>['meta'] | null>(null);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
+  const [hasConversationsOnly, setHasConversationsOnly] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [formData, setFormData] = useState<ContactFormData>({ phone_number: '', name: '', profile_name: '', opt_in: false });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetchContacts();
-  }, []);
+    const t = window.setTimeout(() => setSearchDebounced(search), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
 
-  const fetchContacts = async () => {
+  const fetchPage = useCallback(
+    async (pageNum: number, append: boolean) => {
+      const params = new URLSearchParams();
+      params.set('page', String(pageNum));
+      if (searchDebounced.trim()) params.set('search', searchDebounced.trim());
+      if (hasConversationsOnly) params.set('has_conversations', '1');
+
+      const response = await api.get<PaginatedResponse<Contact>>(`/contacts?${params.toString()}`);
+      setMeta(response.meta);
+      setPage(pageNum);
+      setContacts((prev) => (append ? [...prev, ...(response.data || [])] : response.data || []));
+    },
+    [searchDebounced, hasConversationsOnly]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        await fetchPage(1, false);
+      } catch (error) {
+        console.error('Failed to fetch contacts:', error);
+        if (!cancelled) {
+          setContacts([]);
+          setMeta(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchPage]);
+
+  const loadMore = async () => {
+    if (!meta || page >= meta.last_page || loadingMore) return;
+    setLoadingMore(true);
     try {
-      const response = await api.get<{ data: Contact[] }>('/contacts');
-      setContacts(response.data || []);
-    } catch (error) {
-      console.error('Failed to fetch contacts:', error);
+      await fetchPage(page + 1, true);
+    } catch (e) {
+      console.error(e);
     } finally {
-      setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -41,7 +84,9 @@ const CustomersSection = () => {
       toast.success('Contact added successfully');
       setShowAddModal(false);
       setFormData({ phone_number: '', name: '', profile_name: '', opt_in: false });
-      fetchContacts();
+      setSearch('');
+      setSearchDebounced('');
+      await fetchPage(1, false);
     } catch (error) {
       toast.error('Failed to add contact');
     } finally {
@@ -54,16 +99,11 @@ const CustomersSection = () => {
     try {
       await api.post(`/contacts/${id}/delete`);
       toast.success('Contact deleted');
-      fetchContacts();
+      await fetchPage(1, false);
     } catch (error) {
       toast.error('Failed to delete contact');
     }
   };
-
-  const filtered = contacts.filter(c =>
-    (c.name?.toLowerCase() || c.phone_number).includes(search.toLowerCase()) ||
-    c.phone_number.includes(search)
-  );
 
   if (loading) {
     return (
@@ -75,16 +115,32 @@ const CustomersSection = () => {
 
   return (
     <div className="p-6 h-full overflow-y-auto">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold">Contacts</h2>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+        <div>
+          <h2 className="font-semibold">Contacts</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            {meta?.total ?? contacts.length} total
+            {hasConversationsOnly ? ' • with conversations' : ''}
+            {searchDebounced.trim() ? ' • filtered' : ''}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={hasConversationsOnly}
+              onChange={(e) => setHasConversationsOnly(e.target.checked)}
+              className="w-4 h-4 rounded border-border"
+            />
+            Conversations only
+          </label>
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input 
               value={search} 
               onChange={(e) => setSearch(e.target.value)} 
-              placeholder="Search by name or phone..." 
-              className="bg-muted rounded-lg pl-9 pr-4 py-2 text-sm outline-none w-72" 
+              placeholder="Search name or phone…" 
+              className="bg-muted rounded-lg pl-9 pr-4 py-2 text-sm outline-none w-72 max-w-full" 
             />
           </div>
           <button 
@@ -104,14 +160,15 @@ const CustomersSection = () => {
               <th className="text-left p-3">Phone</th>
               <th className="text-left p-3">Profile Name</th>
               <th className="text-left p-3">Opt-in</th>
+              <th className="text-left p-3">Source</th>
               <th className="text-left p-3">Created</th>
               <th className="text-left p-3">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
-              <tr><td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">No contacts found</td></tr>
-            ) : filtered.map(c => (
+            {contacts.length === 0 ? (
+              <tr><td colSpan={7} className="p-6 text-center text-sm text-muted-foreground">No contacts found</td></tr>
+            ) : contacts.map(c => (
               <tr key={c.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
                 <td className="p-3">
                   <div className="flex items-center gap-2">
@@ -128,6 +185,7 @@ const CustomersSection = () => {
                     {c.opt_in ? 'Yes' : 'No'}
                   </span>
                 </td>
+                <td className="p-3 text-xs text-muted-foreground">{contactCreatedViaLabel(c.created_via)}</td>
                 <td className="p-3 text-sm text-muted-foreground">{new Date(c.created_at).toLocaleDateString()}</td>
                 <td className="p-3">
                   <button 
@@ -141,6 +199,19 @@ const CustomersSection = () => {
             ))}
           </tbody>
         </table>
+        {meta && page < meta.last_page && (
+          <div className="p-3 border-t border-border flex justify-center">
+            <button
+              type="button"
+              onClick={() => void loadMore()}
+              disabled={loadingMore}
+              className="px-4 py-2 text-sm rounded-lg bg-muted hover:bg-muted/80 disabled:opacity-50 flex items-center gap-2"
+            >
+              {loadingMore && <Loader2 className="w-4 h-4 animate-spin" />}
+              Load more
+            </button>
+          </div>
+        )}
       </div>
 
       {showAddModal && (

@@ -7,6 +7,7 @@ import WebhookLogsSection from './webhooks/WebhookLogsSection';
 import SettingsSection from './settings/SettingsSection';
 import UsersSection from './users/UsersSection';
 import FlowBuilderSection from './flow/FlowBuilderSection';
+import AuditLogsSection from './audit/AuditLogsSection';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const MainContent = () => {
@@ -21,6 +22,7 @@ const MainContent = () => {
     flow: <FlowBuilderSection />,
     settings: <SettingsSection />,
     users: <UsersSection />,
+    audit: <AuditLogsSection />,
   };
 
   return (

@@ -77,4 +77,4 @@ export interface WebhookLog {
   payload: object;
 }
 
-export type Section = 'dashboard' | 'chat' | 'templates' | 'customers' | 'webhooks' | 'settings' | 'users' | 'flow';
+export type Section = 'dashboard' | 'chat' | 'templates' | 'customers' | 'webhooks' | 'settings' | 'users' | 'flow' | 'audit';

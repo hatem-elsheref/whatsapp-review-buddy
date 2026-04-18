@@ -173,6 +173,26 @@ export interface MessageTemplate {
   parameters?: { key: number; label: string; type: string }[];
 }
 
+export interface PaginatedMeta {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  meta: PaginatedMeta;
+}
+
+export type ContactCreatedVia =
+  | 'manual'
+  | 'whatsapp_inbound'
+  | 'integration'
+  | 'flow'
+  | string
+  | null;
+
 export interface Contact {
   id: number;
   phone_number: string;
@@ -180,6 +200,7 @@ export interface Contact {
   profile_name: string | null;
   wa_id: string | null;
   opt_in: boolean;
+  created_via?: ContactCreatedVia;
   created_at: string;
 }
 
@@ -194,6 +215,9 @@ export interface Conversation {
   window_remaining_seconds?: number | null;
   status: 'open' | 'closed';
   contact?: Contact;
+  unread_inbound_count?: number;
+  last_read_at?: string | null;
+  last_read_at_local?: string | null;
 }
 
 export function contactDisplayName(contact: Contact | null | undefined): string {
@@ -204,6 +228,25 @@ export function contactDisplayName(contact: Contact | null | undefined): string 
   if (profile) return profile;
   if (contact.phone_number) return contact.phone_number;
   return 'Unknown Contact';
+}
+
+export function contactCreatedViaLabel(v: ContactCreatedVia): string {
+  switch (v) {
+    case 'manual':
+      return 'Manual';
+    case 'whatsapp_inbound':
+      return 'WhatsApp';
+    case 'integration':
+      return 'Integration';
+    case 'flow':
+      return 'Flow';
+    case null:
+    case undefined:
+    case '':
+      return '—';
+    default:
+      return String(v);
+  }
 }
 
 export function contactAvatarLabel(contact: Contact | null | undefined): string {
@@ -217,12 +260,17 @@ export function contactAvatarLabel(contact: Contact | null | undefined): string 
   return '?';
 }
 
+export type MessageSenderKind = 'contact' | 'agent' | 'system' | 'integration' | string;
+
 export interface Message {
   id: number;
   conversation_id: number;
   contact_id: number;
   meta_message_id: string | null;
   direction: 'inbound' | 'outbound';
+  sender_kind?: MessageSenderKind;
+  sent_by_user_id?: number | null;
+  sent_by_user?: { id: number; name: string; email: string } | null;
   type: string;
   content: string | null;
   template_name: string | null;

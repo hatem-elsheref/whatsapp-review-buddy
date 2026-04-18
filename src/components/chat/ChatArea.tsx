@@ -8,20 +8,43 @@ import { subscribeToChat, NewMessageEvent, MessageStatusUpdatedEvent } from '@/l
 
 interface ChatAreaProps {
   conversation: Conversation;
+  onMarkedRead?: (conversationId: number) => void;
 }
 
-const ChatArea = ({ conversation }: ChatAreaProps) => {
+const ChatArea = ({ conversation, onMarkedRead }: ChatAreaProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const [windowExpiresAt, setWindowExpiresAt] = useState<string | null>(conversation.window_expires_at ?? null);
   const [windowOpenOverride, setWindowOpenOverride] = useState<boolean | null>(conversation.window_open ?? null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const onMarkedReadRef = useRef(onMarkedRead);
+  onMarkedReadRef.current = onMarkedRead;
+
+  const markConversationRead = useCallback(async () => {
+    try {
+      await api.post(`/conversations/${conversation.id}/mark-read`);
+      onMarkedReadRef.current?.(conversation.id);
+    } catch (e) {
+      console.error('mark-read failed', e);
+    }
+  }, [conversation.id]);
+
+  useEffect(() => {
+    void markConversationRead();
+  }, [conversation.id, markConversationRead]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    setWindowExpiresAt(conversation.window_expires_at ?? null);
+    setWindowOpenOverride(
+      typeof conversation.window_open === 'boolean' ? conversation.window_open : null
+    );
+  }, [conversation.id, conversation.window_expires_at, conversation.window_open]);
 
   const expiresAtMs = useMemo(() => {
     if (!windowExpiresAt) return null;
@@ -81,6 +104,9 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
           contact_id: evt.contact_id,
           meta_message_id: null,
           direction: evt.direction,
+          sender_kind: evt.sender_kind,
+          sent_by_user_id: evt.sent_by_user_id ?? null,
+          sent_by_user: evt.sent_by_user ?? null,
           type: evt.type,
           content: evt.content,
           template_name: null,
@@ -96,6 +122,9 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
         };
         return [...prev, next];
       });
+      if (evt.direction === 'inbound') {
+        void markConversationRead();
+      }
     }, (s: MessageStatusUpdatedEvent) => {
       if (s.conversation_id !== conversation.id) return;
       setMessages((prev) =>
@@ -114,7 +143,7 @@ const ChatArea = ({ conversation }: ChatAreaProps) => {
       );
     });
     return unsub;
-  }, [conversation.id]);
+  }, [conversation.id, markConversationRead]);
 
   const contact = conversation.contact;
   const headerName = contactDisplayName(contact);

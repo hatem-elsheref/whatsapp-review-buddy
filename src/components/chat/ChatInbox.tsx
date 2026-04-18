@@ -1,22 +1,33 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import CustomerList from './CustomerList';
 import ChatArea from './ChatArea';
 import { Conversation } from '@/lib/api';
 
 const ChatInbox = () => {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
+  const [readClearSeq, setReadClearSeq] = useState(0);
+  const [readClearConversationId, setReadClearConversationId] = useState<number | null>(null);
+
+  const handleConversationMarkedRead = useCallback((id: number) => {
+    setSelectedConversation((prev) =>
+      prev && prev.id === id ? { ...prev, unread_inbound_count: 0 } : prev
+    );
+    setReadClearConversationId(id);
+    setReadClearSeq((s) => s + 1);
+  }, []);
 
   return (
     <div className="flex h-full">
       <div className="w-80 border-r border-border flex-shrink-0">
-        <CustomerList 
+        <CustomerList
           onSelectConversation={setSelectedConversation}
           selectedId={selectedConversation?.id}
+          readClearSignal={{ seq: readClearSeq, conversationId: readClearConversationId }}
         />
       </div>
       <div className="flex-1">
         {selectedConversation ? (
-          <ChatArea conversation={selectedConversation} />
+          <ChatArea conversation={selectedConversation} onMarkedRead={handleConversationMarkedRead} />
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center">

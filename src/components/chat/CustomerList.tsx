@@ -1,23 +1,91 @@
-import { useState, useEffect, useRef } from 'react';
-import { api, contactAvatarLabel, contactDisplayName, Conversation, Contact } from '@/lib/api';
-import { Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { api, contactAvatarLabel, contactDisplayName, Conversation, Contact, PaginatedResponse } from '@/lib/api';
+import { Loader2, Search } from 'lucide-react';
 import { formatDistanceStrict } from 'date-fns';
 import { playNotificationSound, subscribeToChat, NewMessageEvent } from '@/lib/pusher';
 
 interface CustomerListProps {
   onSelectConversation: (conversation: Conversation) => void;
   selectedId?: number;
+  readClearSignal?: { seq: number; conversationId: number | null };
 }
 
-const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) => {
+function mergeConversationFromEvent(
+  conv: Conversation,
+  evt: NewMessageEvent,
+  bumpUnread: boolean
+): Conversation {
+  return {
+    ...conv,
+    last_message_at: evt.created_at,
+    unread_inbound_count: bumpUnread
+      ? (conv.unread_inbound_count ?? 0) + 1
+      : conv.unread_inbound_count,
+    ...(evt.window_expires_at != null && evt.window_expires_at !== ''
+      ? { window_expires_at: evt.window_expires_at }
+      : {}),
+    ...(typeof evt.window_open === 'boolean'
+      ? { window_open: evt.window_open, window_remaining_seconds: evt.window_remaining_seconds ?? null }
+      : {}),
+  };
+}
+
+const CustomerList = ({ onSelectConversation, selectedId, readClearSignal }: CustomerListProps) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [meta, setMeta] = useState<PaginatedResponse<Conversation>['meta'] | null>(null);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [now, setNow] = useState(() => Date.now());
   const conversationsRef = useRef<Conversation[]>([]);
 
   useEffect(() => {
-    fetchConversations();
-  }, []);
+    const t = window.setTimeout(() => setSearchDebounced(search), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
+  const fetchPage = useCallback(async (pageNum: number, append: boolean) => {
+    const params = new URLSearchParams();
+    params.set('page', String(pageNum));
+    if (searchDebounced.trim()) params.set('search', searchDebounced.trim());
+
+    const data = await api.get<PaginatedResponse<Conversation>>(`/conversations?${params.toString()}`);
+
+    setMeta(data.meta);
+    setPage(pageNum);
+    setConversations((prev) => (append ? [...prev, ...(data.data || [])] : data.data || []));
+  }, [searchDebounced]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        await fetchPage(1, false);
+      } catch (error) {
+        console.error('Failed to fetch conversations:', error);
+        if (!cancelled) {
+          setConversations([]);
+          setMeta(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchPage]);
+
+  useEffect(() => {
+    if (!readClearSignal?.conversationId) return;
+    const id = readClearSignal.conversationId;
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, unread_inbound_count: 0 } : c))
+    );
+  }, [readClearSignal?.seq, readClearSignal?.conversationId]);
 
   useEffect(() => {
     conversationsRef.current = conversations;
@@ -30,7 +98,6 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
 
   useEffect(() => {
     const unsub = subscribeToChat(async (evt: NewMessageEvent) => {
-      // Play sound on inbound only.
       if (evt.direction === 'inbound') {
         playNotificationSound();
       }
@@ -40,27 +107,25 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
         if (idx === -1) {
           return prev;
         }
-        const updated: Conversation = { ...prev[idx], last_message_at: evt.created_at };
-        const next = [updated, ...prev.filter((c) => c.id !== evt.conversation_id)];
-        return next;
+        const bumpUnread = evt.direction === 'inbound' && selectedId !== evt.conversation_id;
+        const updated = mergeConversationFromEvent(prev[idx], evt, bumpUnread);
+        return [updated, ...prev.filter((c) => c.id !== evt.conversation_id)];
       });
 
-      // If this conversation isn't loaded in the current page, fetch and add it.
-      if (!conversationsRef.current.some((c) => c.id === evt.conversation_id)) {
+      const inList = conversationsRef.current.some((c) => c.id === evt.conversation_id);
+      if (!inList) {
         try {
-          const res = await api.get<{ data: { id: number; contact?: Contact; window_expires_at: string | null } }>(
-            `/conversations/${evt.conversation_id}`
-          );
+          const res = await api.get<{ data: Conversation }>(`/conversations/${evt.conversation_id}`);
           const c = res.data;
-          const conv: Conversation = {
-            id: c.id,
-            contact_id: c.contact?.id ?? 0,
-            wa_conversation_id: null,
-            last_message_at: evt.created_at,
-            window_expires_at: c.window_expires_at ?? null,
-            status: 'open',
-            contact: c.contact,
-          };
+          const conv = mergeConversationFromEvent(
+            {
+              ...c,
+              contact: c.contact as Contact | undefined,
+              status: c.status ?? 'open',
+            },
+            evt,
+            false
+          );
           setConversations((prev) => [conv, ...prev.filter((x) => x.id !== conv.id)]);
         } catch {
           // ignore
@@ -68,16 +133,17 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
       }
     });
     return unsub;
-  }, []);
+  }, [selectedId]);
 
-  const fetchConversations = async () => {
+  const loadMore = async () => {
+    if (!meta || page >= meta.last_page || loadingMore) return;
+    setLoadingMore(true);
     try {
-      const data = await api.get<{ data: Conversation[] }>('/conversations');
-      setConversations(data.data || []);
-    } catch (error) {
-      console.error('Failed to fetch conversations:', error);
+      await fetchPage(page + 1, true);
+    } catch (e) {
+      console.error(e);
     } finally {
-      setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -90,7 +156,9 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
     return `${Math.floor(diff / 86400000)}d`;
   };
 
-  const isWindowOpen = (windowExpiresAt: string | null) => {
+  const isWindowOpen = (conv: Conversation) => {
+    if (typeof conv.window_open === 'boolean') return conv.window_open;
+    const windowExpiresAt = conv.window_expires_at;
     if (!windowExpiresAt) return false;
     const t = new Date(windowExpiresAt).getTime();
     if (Number.isNaN(t)) return false;
@@ -113,16 +181,32 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
     );
   }
 
+  const totalLabel = meta?.total ?? conversations.length;
+
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-border">
-        <h2 className="font-semibold text-sm">Chat Inbox</h2>
-        <p className="text-xs text-muted-foreground mt-1">{conversations.length} conversations</p>
+      <div className="p-4 border-b border-border space-y-3">
+        <div>
+          <h2 className="font-semibold text-sm">Chat Inbox</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            {totalLabel} conversation{totalLabel === 1 ? '' : 's'}
+            {searchDebounced.trim() ? ' (filtered)' : ''}
+          </p>
+        </div>
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, phone…"
+            className="w-full bg-muted rounded-lg pl-9 pr-3 py-2 text-sm outline-none border border-transparent focus:border-border"
+          />
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto">
         {conversations.length === 0 ? (
           <div className="p-4 text-center text-sm text-muted-foreground">
-            No conversations yet
+            {searchDebounced.trim() ? 'No conversations match your search' : 'No conversations yet'}
           </div>
         ) : (
           conversations.map((conv) => {
@@ -131,6 +215,7 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
             const listAvatar = contactAvatarLabel(contact);
             const lastMsgTime = conv.last_message_at;
             const isActive = selectedId === conv.id;
+            const windowOpen = isWindowOpen(conv);
             return (
               <button
                 key={conv.id}
@@ -144,12 +229,19 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
                     {listAvatar}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center gap-2">
                       <span className="font-medium text-sm truncate">{listTitle}</span>
-                      {lastMsgTime && <span className="text-xs text-muted-foreground">{formatTime(lastMsgTime)}</span>}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {(conv.unread_inbound_count ?? 0) > 0 && (
+                          <span className="text-[10px] font-semibold min-w-[1.25rem] h-5 px-1.5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+                            {(conv.unread_inbound_count ?? 0) > 99 ? '99+' : conv.unread_inbound_count}
+                          </span>
+                        )}
+                        {lastMsgTime && <span className="text-xs text-muted-foreground">{formatTime(lastMsgTime)}</span>}
+                      </div>
                     </div>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {isWindowOpen(conv.window_expires_at)
+                      {windowOpen
                         ? `Active • ${getWindowTimeLeft(conv.window_expires_at) ?? '24h window'} left`
                         : 'Template only'}
                     </p>
@@ -158,6 +250,19 @@ const CustomerList = ({ onSelectConversation, selectedId }: CustomerListProps) =
               </button>
             );
           })
+        )}
+        {meta && page < meta.last_page && (
+          <div className="p-3 border-t border-border">
+            <button
+              type="button"
+              onClick={() => void loadMore()}
+              disabled={loadingMore}
+              className="w-full py-2 text-sm rounded-lg bg-muted hover:bg-muted/80 text-foreground disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loadingMore && <Loader2 className="w-4 h-4 animate-spin" />}
+              Load more
+            </button>
+          </div>
         )}
       </div>
     </div>
