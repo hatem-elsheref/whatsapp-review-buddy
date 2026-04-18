@@ -65,7 +65,11 @@ const SendInteractiveListModal = ({ conversationId, onClose, onMessageSent }: Se
         sections: mappedSections,
       });
 
-      toast.success(res?.status === 'queued' ? 'Interactive list queued' : 'Interactive list sent');
+      if (res?.status === 'failed') {
+        toast.error('Interactive list failed to send.');
+      } else {
+        toast.success('Interactive list sent');
+      }
 
       if (onMessageSent) {
         onMessageSent({
@@ -79,7 +83,7 @@ const SendInteractiveListModal = ({ conversationId, onClose, onMessageSent }: Se
           media_url: null,
           status: res?.status ?? 'sent',
           meta_message_id: res?.meta_message_id ?? null,
-          sent_at: res?.status === 'queued' ? null : new Date().toISOString(),
+          sent_at: res?.status === 'sent' ? new Date().toISOString() : null,
           created_at: new Date().toISOString(),
           interactive_payload: {
             type: 'list',
@@ -90,7 +94,9 @@ const SendInteractiveListModal = ({ conversationId, onClose, onMessageSent }: Se
         });
       }
 
-      onClose();
+      if (res?.status !== 'failed') {
+        onClose();
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to send interactive list');
     } finally {

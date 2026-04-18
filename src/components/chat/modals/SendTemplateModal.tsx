@@ -81,8 +81,12 @@ const SendTemplateModal = ({ conversationId, onClose, onMessageSent }: SendTempl
         `/conversations/${conversationId}/send`,
         payload
       );
-      toast.success(res?.status === 'queued' ? 'Template queued' : 'Template sent successfully');
-      
+      if (res?.status === 'failed') {
+        toast.error('Template failed to send. Check WhatsApp access token and template name.');
+      } else {
+        toast.success('Template sent successfully');
+      }
+
       if (onMessageSent) {
         onMessageSent({
           id: res?.id ?? Date.now(),
@@ -95,12 +99,14 @@ const SendTemplateModal = ({ conversationId, onClose, onMessageSent }: SendTempl
           media_url: null,
           status: res?.status ?? 'sent',
           meta_message_id: res?.meta_message_id ?? null,
-          sent_at: res?.status === 'queued' ? null : new Date().toISOString(),
+          sent_at: res?.status === 'sent' ? new Date().toISOString() : null,
           created_at: new Date().toISOString(),
         });
       }
-      
-      onClose();
+
+      if (res?.status !== 'failed') {
+        onClose();
+      }
     } catch (error) {
       toast.error('Failed to send template');
     } finally {

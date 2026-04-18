@@ -44,12 +44,16 @@ const MessageComposer = ({ conversationId, canSendFreeText, onMessageSent }: Mes
         media_url: null,
         status: res?.status ?? 'sent',
         meta_message_id: res?.meta_message_id ?? null,
-        sent_at: res?.status === 'queued' ? null : new Date().toISOString(),
+        sent_at: res?.status === 'sent' ? new Date().toISOString() : null,
         created_at: new Date().toISOString(),
       };
       onMessageSent(msg);
       setText('');
-      toast.success(res?.status === 'queued' ? 'Message queued' : 'Message sent');
+      if (res?.status === 'failed') {
+        toast.error('Message failed to send. Check WhatsApp access token and contact phone number.');
+      } else {
+        toast.success('Message sent');
+      }
     } catch (error) {
       toast.error('Failed to send message');
     } finally {

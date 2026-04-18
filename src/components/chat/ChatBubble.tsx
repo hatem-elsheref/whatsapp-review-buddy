@@ -1,4 +1,7 @@
 import { api, Message } from '@/lib/api';
+import { Check, CheckCheck, Clock, Image as ImageIcon, MapPin, Mic, Paperclip, Sticker, Video, XCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import MediaViewerModal from './MediaViewerModal';
 
 function outgoingSenderCaption(message: Message): string | null {
   const k = (message.sender_kind ?? '').toLowerCase();
@@ -11,27 +14,152 @@ function outgoingSenderCaption(message: Message): string | null {
   if (k === 'contact') return null;
   return null;
 }
-import { Check, CheckCheck, Clock, XCircle } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import MediaViewerModal from './MediaViewerModal';
+
+/** Backend stores bracket fallbacks for empty captions; hide them when we render rich media. */
+function isBracketMediaPlaceholder(text: string | null | undefined): boolean {
+  if (!text || !text.trim()) return false;
+  return /^\[(Image|Video|Audio|Document|Sticker|Interactive|Location|Message|CONTACTS)\]$/i.test(text.trim());
+}
+
+function mediaKindLabel(message: Message): string {
+  const t = (message.type ?? '').toLowerCase();
+  const mt = (message.media_type ?? '').toLowerCase();
+  if (t === 'sticker' || mt.includes('webp')) return 'Sticker';
+  if (t === 'audio' || mt.startsWith('audio/')) return 'Voice message';
+  if (t === 'video' || mt.startsWith('video/')) return 'Video';
+  if (t === 'document') return 'Document';
+  if (t === 'image' || mt.startsWith('image/')) return 'Photo';
+  return 'Attachment';
+}
+
+type ContactItem = {
+  display_name?: string;
+  phone?: string | null;
+  wa_id?: string | null;
+  name?: { formatted_name?: string; first_name?: string; last_name?: string };
+  phones?: unknown;
+  emails?: unknown;
+};
+
+type ContactsPayloadShape = {
+  type?: string;
+  items?: ContactItem[];
+};
+
+function parseJsonObject(raw: unknown): Record<string, unknown> | null {
+  if (raw == null) return null;
+  if (typeof raw === 'string') {
+    try {
+      const v = JSON.parse(raw) as unknown;
+      return v !== null && typeof v === 'object' ? (v as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === 'object') return raw as Record<string, unknown>;
+  return null;
+}
+
+function asPhoneRows(phones: unknown): Array<{ phone?: string; wa_id?: string }> {
+  if (!phones) return [];
+  const list = Array.isArray(phones) ? phones : typeof phones === 'object' ? Object.values(phones as object) : [];
+  return list.filter((p): p is { phone?: string; wa_id?: string } => p !== null && typeof p === 'object');
+}
+
+function contactDisplayLine(c: ContactItem): string {
+  const dn = typeof c.display_name === 'string' ? c.display_name.trim() : '';
+  if (dn) return dn;
+  const fn = c.name?.formatted_name?.trim();
+  if (fn) return fn;
+  const first = c.name?.first_name?.trim() ?? '';
+  const last = c.name?.last_name?.trim() ?? '';
+  const combined = [first, last].filter(Boolean).join(' ').trim();
+  if (combined) return combined;
+  return '';
+}
+
+function contactPhoneLine(c: ContactItem): string {
+  const p0 = typeof c.phone === 'string' ? c.phone.trim() : '';
+  if (p0) return p0;
+  const w0 = typeof c.wa_id === 'string' ? c.wa_id.trim() : '';
+  if (w0) return w0;
+  const rows = asPhoneRows(c.phones);
+  const a = rows[0]?.phone?.trim() || rows[0]?.wa_id?.trim() || '';
+  return a;
+}
+
+function contactEmailLine(c: ContactItem): string | null {
+  if (Array.isArray(c.emails) && c.emails.length > 0) {
+    const first = c.emails[0];
+    if (typeof first === 'string' && first.trim()) return first.trim();
+    if (first && typeof first === 'object' && 'email' in first) {
+      const e = (first as { email?: string }).email;
+      if (typeof e === 'string' && e.trim()) return e.trim();
+    }
+  }
+  return null;
+}
 
 const ChatBubble = ({ message }: { message: Message }) => {
   const direction = String((message as any).direction ?? '').toLowerCase();
   const isOutgoing =
     direction === 'outbound' ||
     direction === 'outgoing' ||
-    // fallback for legacy rows
     (direction === '' && (message as any).status === 'sent');
   const outgoingCaption = isOutgoing ? outgoingSenderCaption(message) : null;
+
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<string | null>(null);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
+
+  const msgType = (message.type ?? '').toLowerCase();
+  const hasMediaId = Boolean(message.media_id);
+
   const autoLoadMedia = useMemo(() => {
+    if (!hasMediaId) return false;
     const mt = (message.media_type ?? '').toLowerCase();
-    const t = (message.type ?? '').toLowerCase();
-    return Boolean(message.media_id) && (mt.startsWith('image/') || t === 'image');
-  }, [message.media_id, message.media_type, message.type]);
+    if (msgType === 'image' || msgType === 'sticker') return true;
+    if (mt.startsWith('image/')) return true;
+    return false;
+  }, [hasMediaId, message.media_type, msgType]);
+
+  /** Load audio/video in background so native controls work without an extra click. */
+  const preloadAudioVideo = useMemo(() => {
+    if (!hasMediaId || autoLoadMedia) return false;
+    const mt = (message.media_type ?? '').toLowerCase();
+    if (msgType === 'audio' || msgType === 'video') return true;
+    return mt.startsWith('audio/') || mt.startsWith('video/');
+  }, [hasMediaId, autoLoadMedia, message.media_type, msgType]);
+
+  const captionText = useMemo(() => {
+    const raw = (message.content ?? '').trim();
+    if (!raw) return null;
+    if (isBracketMediaPlaceholder(raw)) return null;
+    return raw;
+  }, [message.content]);
+
+  const locationPayload = useMemo(() => {
+    const p = message.interactive_payload as { type?: string; location?: Record<string, unknown> } | null | undefined;
+    if (p?.type === 'location' && p.location && typeof p.location === 'object') {
+      return p.location as Record<string, unknown>;
+    }
+    if (msgType === 'location' && p?.location) {
+      return p.location as Record<string, unknown>;
+    }
+    return null;
+  }, [message.interactive_payload, msgType]);
+
+  const contactsPayload = useMemo((): ContactItem[] | null => {
+    const root = parseJsonObject(message.interactive_payload);
+    if (!root) return null;
+    const p = root as ContactsPayloadShape;
+    if (p.type !== 'contacts') return null;
+    if (Array.isArray(p.items) && p.items.length > 0) {
+      return p.items;
+    }
+    return null;
+  }, [message.interactive_payload]);
 
   useEffect(() => {
     return () => {
@@ -39,33 +167,48 @@ const ChatBubble = ({ message }: { message: Message }) => {
     };
   }, [mediaUrl]);
 
+  const handleLoadMedia = async () => {
+    if (!message.media_id || mediaLoading || mediaUrl) return;
+    setMediaLoading(true);
+    try {
+      const blob = await api.getBlob(message.media_download_url || `/messages/${message.id}/media`);
+      setMediaType(blob.type || null);
+      setMediaUrl(URL.createObjectURL(blob));
+    } finally {
+      setMediaLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!autoLoadMedia) return;
     if (mediaUrl || mediaLoading) return;
-    void (async () => {
-      await handleLoadMedia();
-    })();
+    void handleLoadMedia();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoLoadMedia]);
 
-  const displayText = useMemo(() => {
-    const raw = (message.content ?? '').trim();
-    if (raw) return raw;
-    if (message.media_id) {
-      const t = (message.type || '').toLowerCase();
-      if (t) return `[${t}]`;
-      return '[media]';
+  useEffect(() => {
+    if (!preloadAudioVideo) return;
+    if (mediaUrl || mediaLoading) return;
+    void handleLoadMedia();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preloadAudioVideo]);
+
+  const openViewer = async () => {
+    if (!message.media_id) return;
+    if (!mediaUrl && !mediaLoading) {
+      await handleLoadMedia();
     }
-    if (message.interactive_payload) return '[interactive]';
-    const t = (message.type || '').toLowerCase();
-    return t ? `[${t}]` : '';
-  }, [message.content, message.interactive_payload, message.media_id, message.type]);
+    setViewerOpen(true);
+  };
 
   const interactive = (message.interactive_payload ?? null) as
     | null
     | {
         type?: string;
         body?: { text?: string };
+        location?: Record<string, unknown>;
+        button_reply?: { title?: string };
+        list_reply?: { title?: string; description?: string };
         header?: { type?: string; text?: string };
         footer?: { text?: string };
         action?: {
@@ -76,7 +219,6 @@ const ChatBubble = ({ message }: { message: Message }) => {
           }>;
           buttons?: Array<{ type: string; reply?: { id: string; title: string } }>;
         };
-        // legacy/local shape
         button?: string;
         buttons?: Array<{ id: string; title: string }>;
         sections?: Array<{
@@ -100,25 +242,17 @@ const ChatBubble = ({ message }: { message: Message }) => {
     return <Check className="w-4 h-4 text-gray-400" />;
   };
 
-  const handleLoadMedia = async () => {
-    if (!message.media_id || mediaLoading || mediaUrl) return;
-    setMediaLoading(true);
-    try {
-      const blob = await api.getBlob(message.media_download_url || `/messages/${message.id}/media`);
-      setMediaType(blob.type || null);
-      setMediaUrl(URL.createObjectURL(blob));
-    } finally {
-      setMediaLoading(false);
-    }
-  };
+  const mapsHref = useMemo(() => {
+    if (!locationPayload) return null;
+    const lat = locationPayload.latitude;
+    const lng = locationPayload.longitude;
+    if (lat == null || lng == null) return null;
+    return `https://www.google.com/maps?q=${encodeURIComponent(String(lat) + ',' + String(lng))}`;
+  }, [locationPayload]);
 
-  const openViewer = async () => {
-    if (!message.media_id) return;
-    if (!mediaUrl && !mediaLoading) {
-      await handleLoadMedia();
-    }
-    setViewerOpen(true);
-  };
+  const showMediaChrome = hasMediaId && !locationPayload && !contactsPayload;
+  const subtleMediaLabel =
+    showMediaChrome && (captionText === null || captionText === '') ? mediaKindLabel(message) : null;
 
   return (
     <div className="w-full animate-in fade-in slide-in-from-bottom-1 duration-200">
@@ -146,9 +280,92 @@ const ChatBubble = ({ message }: { message: Message }) => {
             </div>
           ) : null}
 
-          {displayText ? (
+          {subtleMediaLabel ? (
+            <div
+              className={`flex items-center gap-1.5 text-[11px] mb-1.5 font-medium ${
+                isOutgoing ? 'text-white/80' : 'text-muted-foreground'
+              }`}
+            >
+              {msgType === 'image' ? <ImageIcon className="w-3.5 h-3.5 shrink-0 opacity-90" /> : null}
+              {msgType === 'sticker' ? <Sticker className="w-3.5 h-3.5 shrink-0" /> : null}
+              {msgType === 'audio' ? <Mic className="w-3.5 h-3.5 shrink-0" /> : null}
+              {msgType === 'video' ? <Video className="w-3.5 h-3.5 shrink-0" /> : null}
+              {msgType === 'document' ? <Paperclip className="w-3.5 h-3.5 shrink-0" /> : null}
+              <span>{subtleMediaLabel}</span>
+            </div>
+          ) : null}
+
+          {locationPayload ? (
+            mapsHref ? (
+              <a
+                href={mapsHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+                  isOutgoing ? 'border-white/30 bg-white/10 text-white' : 'border-border bg-background text-primary'
+                }`}
+              >
+                <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className="min-w-0">
+                  <span className="font-medium block">Location</span>
+                  {(locationPayload.name as string) || (locationPayload.address as string) || 'Open in Maps'}
+                </span>
+              </a>
+            ) : (
+              <div
+                className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+                  isOutgoing ? 'border-white/30 bg-white/10 text-white/95' : 'border-border bg-muted/40'
+                }`}
+              >
+                <MapPin className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className="min-w-0 text-[13px]">
+                  <span className="font-medium block">Location</span>
+                  {captionText || 'Shared location'}
+                </span>
+              </div>
+            )
+          ) : null}
+
+          {contactsPayload ? (
+            <div
+              className={`rounded-lg border px-3 py-2 text-sm space-y-2 ${
+                isOutgoing ? 'border-white/30 bg-white/10' : 'border-border bg-background'
+              }`}
+            >
+              <div className={`text-xs font-semibold ${isOutgoing ? 'text-white/90' : 'text-foreground'}`}>
+                Shared contacts
+              </div>
+              <ul className="space-y-1.5">
+                {contactsPayload.slice(0, 5).map((c, i) => {
+                  const name = contactDisplayLine(c) || 'Contact';
+                  const phone = contactPhoneLine(c);
+                  const email = contactEmailLine(c);
+                  return (
+                    <li
+                      key={i}
+                      className={`text-[13px] ${isOutgoing ? 'text-white/95' : 'text-foreground'}`}
+                    >
+                      <span className="font-medium">{name}</span>
+                      {phone ? (
+                        <span className={`block text-[11px] ${isOutgoing ? 'text-white/75' : 'text-muted-foreground'}`}>
+                          {phone}
+                        </span>
+                      ) : null}
+                      {email ? (
+                        <span className={`block text-[11px] ${isOutgoing ? 'text-white/70' : 'text-muted-foreground'}`}>
+                          {email}
+                        </span>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
+
+          {captionText && !(contactsPayload && captionText.toLowerCase().startsWith('shared contact')) ? (
             <p dir="auto" className="text-[15px] leading-relaxed whitespace-pre-wrap">
-              {displayText}
+              {captionText}
             </p>
           ) : null}
 
@@ -166,9 +383,7 @@ const ChatBubble = ({ message }: { message: Message }) => {
                 Selected: {interactive.list_reply?.title || 'Option'}
               </span>
               {interactive.list_reply?.description ? (
-                <div className="text-[11px] text-muted-foreground">
-                  {interactive.list_reply.description}
-                </div>
+                <div className="text-[11px] text-muted-foreground">{interactive.list_reply.description}</div>
               ) : null}
             </div>
           )}
@@ -224,7 +439,7 @@ const ChatBubble = ({ message }: { message: Message }) => {
             </div>
           )}
 
-          {message.media_id && (
+          {showMediaChrome && (
             <div className="mt-2 space-y-2">
               {mediaUrl && (mediaType?.startsWith('image/') ?? false) ? (
                 <button type="button" onClick={openViewer} className="block">
@@ -236,18 +451,30 @@ const ChatBubble = ({ message }: { message: Message }) => {
                 </button>
               ) : null}
 
+              {mediaUrl && (mediaType?.startsWith('audio/') ?? false) ? (
+                <audio src={mediaUrl} controls className="w-full max-w-sm h-9" preload="metadata" />
+              ) : null}
+
+              {mediaUrl && (mediaType?.startsWith('video/') ?? false) ? (
+                <video src={mediaUrl} controls className="max-h-72 rounded-lg border border-black/10 max-w-full" preload="metadata" />
+              ) : null}
+
               {!autoLoadMedia && (
                 <button
                   type="button"
                   onClick={openViewer}
-                  className={`inline-flex text-xs font-medium ${isOutgoing ? 'text-white/90' : 'text-primary'}`}
+                  className={`inline-flex items-center gap-1.5 text-xs font-medium ${isOutgoing ? 'text-white/90' : 'text-primary'}`}
                   disabled={mediaLoading}
                 >
-                  {mediaLoading ? 'Loading…' : 'Open media'}
+                  {msgType === 'audio' ? <Mic className="w-3.5 h-3.5" /> : null}
+                  {msgType === 'video' ? <Video className="w-3.5 h-3.5" /> : null}
+                  {msgType === 'document' ? <Paperclip className="w-3.5 h-3.5" /> : null}
+                  {msgType === 'sticker' ? <Sticker className="w-3.5 h-3.5" /> : null}
+                  {mediaLoading ? 'Loading…' : `${mediaKindLabel(message)} — open`}
                 </button>
               )}
 
-              {mediaUrl && !(mediaType?.startsWith('image/') ?? false) ? (
+              {mediaUrl && !(mediaType?.startsWith('image/') ?? false) && !(mediaType?.startsWith('audio/') ?? false) && !(mediaType?.startsWith('video/') ?? false) ? (
                 <button
                   type="button"
                   onClick={() => setViewerOpen(true)}

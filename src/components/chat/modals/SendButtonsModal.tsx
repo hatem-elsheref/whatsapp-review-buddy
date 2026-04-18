@@ -33,7 +33,11 @@ const SendButtonsModal = ({ conversationId, onClose, onMessageSent }: SendButton
         buttons: payloadButtons,
       });
 
-      toast.success(res?.status === 'queued' ? 'Buttons message queued' : 'Buttons message sent');
+      if (res?.status === 'failed') {
+        toast.error('Buttons message failed to send.');
+      } else {
+        toast.success('Buttons message sent');
+      }
 
       if (onMessageSent) {
         onMessageSent({
@@ -47,7 +51,7 @@ const SendButtonsModal = ({ conversationId, onClose, onMessageSent }: SendButton
           media_url: null,
           status: res?.status ?? 'sent',
           meta_message_id: res?.meta_message_id ?? null,
-          sent_at: res?.status === 'queued' ? null : new Date().toISOString(),
+          sent_at: res?.status === 'sent' ? new Date().toISOString() : null,
           created_at: new Date().toISOString(),
           interactive_payload: {
             type: 'button',
@@ -56,7 +60,9 @@ const SendButtonsModal = ({ conversationId, onClose, onMessageSent }: SendButton
         });
       }
 
-      onClose();
+      if (res?.status !== 'failed') {
+        onClose();
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to send buttons message');
     } finally {

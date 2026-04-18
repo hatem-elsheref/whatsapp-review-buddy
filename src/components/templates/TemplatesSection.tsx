@@ -100,8 +100,12 @@ const TemplatesSection = () => {
           payload.template_language = template.language || 'ar';
         }
         
-        await api.post(`/conversations/${conversation.id}/send`, payload);
-        toast.success('Template sent successfully');
+        const sendRes = await api.post<{ status?: string }>(`/conversations/${conversation.id}/send`, payload);
+        if (sendRes.status === 'failed') {
+          toast.error('Template failed to send. Check access token and template.');
+        } else {
+          toast.success('Template sent successfully');
+        }
         setSelContact('');
         setSelTemplate('');
         setTemplateParams({});
