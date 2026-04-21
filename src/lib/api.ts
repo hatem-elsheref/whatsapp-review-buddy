@@ -218,6 +218,7 @@ export interface Conversation {
   unread_inbound_count?: number;
   last_read_at?: string | null;
   last_read_at_local?: string | null;
+  automation_mode?: 'auto' | 'manual' | string | null;
 }
 
 export function contactDisplayName(contact: Contact | null | undefined): string {

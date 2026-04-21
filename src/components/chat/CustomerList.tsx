@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api, contactAvatarLabel, contactDisplayName, Conversation, Contact, PaginatedResponse } from '@/lib/api';
-import { Loader2, Search } from 'lucide-react';
+import { Bot, Headset, Loader2, Search, TriangleAlert } from 'lucide-react';
 import { formatDistanceStrict } from 'date-fns';
 import { playNotificationSound, subscribeToChat, NewMessageEvent } from '@/lib/pusher';
 
@@ -216,6 +216,7 @@ const CustomerList = ({ onSelectConversation, selectedId, readClearSignal }: Cus
             const lastMsgTime = conv.last_message_at;
             const isActive = selectedId === conv.id;
             const windowOpen = isWindowOpen(conv);
+            const automationMode = (conv.automation_mode ?? '').toString().toLowerCase();
             return (
               <button
                 key={conv.id}
@@ -232,6 +233,21 @@ const CustomerList = ({ onSelectConversation, selectedId, readClearSignal }: Cus
                     <div className="flex justify-between items-center gap-2">
                       <span className="font-medium text-sm truncate">{listTitle}</span>
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {automationMode === 'auto' ? (
+                          <span
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-50 text-blue-700 border border-blue-200"
+                            title="Automation (auto-reply) active"
+                          >
+                            <Bot className="w-3.5 h-3.5" />
+                          </span>
+                        ) : automationMode === 'manual' ? (
+                          <span
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            title="Agent mode (customer service)"
+                          >
+                            <Headset className="w-3.5 h-3.5" />
+                          </span>
+                        ) : null}
                         {(conv.unread_inbound_count ?? 0) > 0 && (
                           <span className="text-[10px] font-semibold min-w-[1.25rem] h-5 px-1.5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
                             {(conv.unread_inbound_count ?? 0) > 99 ? '99+' : conv.unread_inbound_count}
@@ -241,9 +257,14 @@ const CustomerList = ({ onSelectConversation, selectedId, readClearSignal }: Cus
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {windowOpen
-                        ? `Active • ${getWindowTimeLeft(conv.window_expires_at) ?? '24h window'} left`
-                        : 'Template only'}
+                      {windowOpen ? (
+                        `Active • ${getWindowTimeLeft(conv.window_expires_at) ?? '24h window'} left`
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-rose-700">
+                          <TriangleAlert className="w-3.5 h-3.5" />
+                          Templates required
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>

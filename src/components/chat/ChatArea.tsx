@@ -3,7 +3,7 @@ import { formatDistanceStrict } from 'date-fns';
 import { api, contactAvatarLabel, contactDisplayName, Conversation, Message } from '@/lib/api';
 import ChatBubble from './ChatBubble';
 import MessageComposer from './MessageComposer';
-import { Loader2, MessageCircle as MessageSquare } from 'lucide-react';
+import { Loader2, MessageCircle as MessageSquare, TriangleAlert } from 'lucide-react';
 import { subscribeToChat, NewMessageEvent, MessageStatusUpdatedEvent } from '@/lib/pusher';
 
 interface ChatAreaProps {
@@ -179,8 +179,12 @@ const ChatArea = ({ conversation, onMarkedRead }: ChatAreaProps) => {
           </span>
         )}
         {!windowOpen && (
-          <span className="text-xs bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-medium">
-            Template only
+          <span
+            className="text-xs bg-rose-100 text-rose-800 px-2.5 py-1 rounded-full font-medium inline-flex items-center gap-1"
+            title={expiresAtMs ? `Window expired at ${new Date(expiresAtMs).toLocaleString()}` : undefined}
+          >
+            <TriangleAlert className="w-3.5 h-3.5" />
+            24h window expired • Templates required
           </span>
         )}
       </div>
